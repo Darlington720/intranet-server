@@ -4,7 +4,7 @@ type User {
     user_id: String!,
     biodata: Staff!,
     email: String!,
-    pwd: String!,
+    # pwd: String!,
     last_logged_in: [UserLogin],
     created_on: String,
     created_by: String,
@@ -28,11 +28,17 @@ type UserLogin {
 
 type Query {
     users: [User]
+    my_profile: User
+}
+
+type Token {
+    token: String!
 }
 
 type Mutation {
     addUser(user_id: String!, role_id: String!, email: String!, created_by: String!):  User
-    login(email: String!, pwd: String!): User
+    login(email: String!, pwd: String!): Token
+    unlockSession(pwd: String!): Token
     change_password(password: String!, id: ID!): User
     save_user_sec_qns(id: Int!, qns: String!): User
 }

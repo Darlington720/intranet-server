@@ -28,6 +28,7 @@ import { ApolloServerPluginDrainHttpServer } from "@apollo/server/plugin/drainHt
 import bodyParser from "body-parser";
 import findImageWithExtension from "./utilities/findImageWithExtension.js";
 import { fileURLToPath } from "url";
+import authenticateUser from "./middleware/auth.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1681,8 +1682,25 @@ const server = new ApolloServer({
   typeDefs,
   resolvers,
   csrfPrevention: true,
-
   plugins: [ApolloServerPluginDrainHttpServer({ httpServer })],
+  introspection: true,
+  // formatError: (err) => {
+  //   // Only expose custom error message and status if it's set
+  //   const errorDetails = {
+  //     message: err.message,
+  //   };
+
+  //   if (err.extensions?.http?.status) {
+  //     errorDetails.extensions = {
+  //       http: {
+  //         status: err.extensions.http.status,
+  //       },
+  //     };
+  //   }
+
+  //   // Avoid exposing stack trace or internal details to the client
+  //   return errorDetails;
+  // },
 });
 
 await server.start();
@@ -1693,12 +1711,15 @@ app.use(
   graphqlUploadExpress(),
   expressMiddleware(server, {
     // context: async ({ req }) => ({ token: req.headers.token }),
-    context: ({ req }) => {
-      const name = req.headers.name || "Guest";
+    context: async ({ req, res }) => {
+      const operationName = req.body.operationName;
 
-      // console.log("context working...", name);
+      // console.log("operation name", operationName);
+      if (operationName !== "Login" && operationName !== "IntrospectionQuery") {
+        await authenticateUser({ req });
+      }
 
-      return { req };
+      return { req, res };
     },
   })
 );

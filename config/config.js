@@ -4,6 +4,7 @@ import mysql from "mysql2/promise";
 const baseUrl = "http://localhost:2222/module_logos/";
 const port = 2323;
 const host = "0.0.0.0";
+const PRIVATE_KEY = "tredumo#123";
 
 const database = knex({
   client: "mysql",
@@ -56,4 +57,14 @@ const db = await mysql.createConnection({
 
 // console.log("database", db);
 
-export { baseUrl, port, database, tredumoDB, _db, postgraduateDB, db, host };
+export {
+  baseUrl,
+  port,
+  database,
+  tredumoDB,
+  _db,
+  postgraduateDB,
+  db,
+  host,
+  PRIVATE_KEY,
+};

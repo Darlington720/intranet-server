@@ -1,8 +1,85 @@
-import { _db, db, baseUrl } from "../../config/config.js";
+import jwt from "jsonwebtoken";
 import bcrypt from "bcrypt";
+import { _db, db, baseUrl, PRIVATE_KEY } from "../../config/config.js";
 import { GraphQLError } from "graphql";
 
+const getUser = async ({ id }) => {
+  try {
+    if (!id) {
+      throw new GraphQLError("User ID is required");
+    }
+
+    let values = [];
+    let where = "";
+
+    if (id) {
+      where += " AND management_users.id = ?";
+      values.push(id);
+    }
+
+    let sql = `SELECT * FROM management_users WHERE deleted = 0 ${where}`;
+
+    const [results, fields] = await db.execute(sql, values);
+
+    if (!results[0]) {
+      throw new GraphQLError(`User not found`);
+    }
+
+    return results[0];
+  } catch (error) {
+    throw new GraphQLError(error.message);
+  }
+};
+
+export const getUserLastLoginDetails = async ({ user_id, lastRecord }) => {
+  let lastLogin;
+  if (lastRecord) {
+    const fallbackLogin = await _db("management_user_logins")
+      .where({
+        user_id: user_id,
+      })
+      .orderBy("id", "desc")
+      .limit(1);
+    return fallbackLogin;
+  } else {
+    lastLogin = await _db("management_user_logins")
+      .where({
+        user_id: user_id,
+      })
+      .orderBy("id", "desc")
+      .limit(1)
+      .offset(1);
+
+    if (!lastLogin[0]) {
+      const fallbackLogin = await _db("management_user_logins")
+        .where({
+          user_id: user_id,
+        })
+        .orderBy("id", "desc")
+        .limit(1);
+      return fallbackLogin;
+    }
+  }
+
+  return lastLogin;
+};
+
 const userResolvers = {
+  Query: {
+    my_profile: async (parent, args, context) => {
+      const user_id = context.req.user.id;
+      const user = await getUser({
+        id: user_id,
+      });
+
+      return user;
+    },
+    users: async () => {
+      const results = await _db("management_users");
+      // console.log("roles", results);
+      return results;
+    },
+  },
   User: {
     biodata: async (parent) => {
       return await _db("staff")
@@ -12,23 +89,9 @@ const userResolvers = {
         .first();
     },
     last_logged_in: async (parent) => {
-      const lastLogin = await _db("management_user_logins")
-        .where({
-          user_id: parent.user_id,
-        })
-        .orderBy("id", "desc") // Assuming your table has an 'id' column, replace it with the appropriate column
-        .limit(1)
-        .offset(1);
-
-      if (!lastLogin[0]) {
-        return await _db("management_user_logins")
-          .where({
-            user_id: parent.user_id,
-          })
-          .orderBy("id", "desc") // Assuming your table has an 'id' column, replace it with the appropriate column
-          .limit(1);
-      }
-
+      const lastLogin = await getUserLastLoginDetails({
+        user_id: parent.id,
+      });
       return lastLogin;
     },
     role: async (parent) => {
@@ -57,20 +120,14 @@ const userResolvers = {
 
         return results[0];
       } catch (error) {
-        console.log("errror", error);
+        // console.log("errror", error);
         throw new GraphQLError(
           "No role is assigned to user yet, Contact system admin to resolve this issue"
         );
       }
     },
   },
-  Query: {
-    users: async () => {
-      const results = await _db("management_users");
-      // console.log("roles", results);
-      return results;
-    },
-  },
+
   Mutation: {
     addUser: async (parent, args) => {
       const salt = await bcrypt.genSalt();
@@ -123,28 +180,92 @@ const userResolvers = {
         })
         .first();
 
-      if (user) {
-        const auth = await bcrypt.compare(args.pwd, user.pwd);
+      if (!user) throw new GraphQLError("Invalid Email or Password");
 
-        // console.log(auth);
-        if (auth) {
-          // Access the IP address from the context
-          const clientIpAddress = context.req.connection.remoteAddress;
+      const validPassword = await bcrypt.compare(args.pwd, user.pwd);
+      if (!validPassword) throw new GraphQLError("Invalid Email or Password");
 
-          // console.log(clientIpAddress);
-          // store the login data
-          await _db("management_user_logins").insert({
-            user_id: user.user_id,
-            machine_ipaddress: clientIpAddress,
-          });
+      if (!user.is_active)
+        throw new GraphQLError(
+          "Account suspended, Please contact the admin for rectification!!!"
+        );
 
-          return user;
-        } else {
-          throw new GraphQLError("Incorrect Password");
+      // Access the IP address from the context
+      const clientIpAddress = context.req.connection.remoteAddress;
+
+      const SALT_ROUNDS = 10;
+      const token = jwt.sign(
+        {
+          id: user.id,
+        },
+        PRIVATE_KEY,
+        {
+          expiresIn: "1d",
         }
-      } else {
-        throw new GraphQLError("Invalid Email");
-      }
+      );
+
+      const tokenHash = await bcrypt.hash(token, SALT_ROUNDS);
+
+      // create session for the login
+      await _db("management_user_logins").insert({
+        user_id: user.id,
+        token_hash: tokenHash,
+        machine_ipaddress: clientIpAddress,
+      });
+
+      context.res.setHeader("x-auth-token", `Bearer ${token}`);
+
+      return { token };
+
+      // return user;
+    },
+    unlockSession: async (parent, args, context) => {
+      const user_id = context.req.user.id;
+      const user = await _db("management_users")
+        .where({
+          id: user_id,
+        })
+        .first();
+
+      if (!user) throw new GraphQLError("Invalid User!!!");
+
+      const validPassword = await bcrypt.compare(args.pwd, user.pwd);
+      if (!validPassword)
+        throw new GraphQLError("Invalid Password, Please try again!");
+
+      if (!user.is_active)
+        throw new GraphQLError(
+          "Account suspended, Please contact the admin for rectification!!!"
+        );
+
+      // Access the IP address from the context
+      const clientIpAddress = context.req.connection.remoteAddress;
+
+      const SALT_ROUNDS = 10;
+      const token = jwt.sign(
+        {
+          id: user.id,
+        },
+        PRIVATE_KEY,
+        {
+          expiresIn: "1d",
+        }
+      );
+
+      const tokenHash = await bcrypt.hash(token, SALT_ROUNDS);
+
+      // create session for the login
+      await _db("management_user_logins").insert({
+        user_id: user.id,
+        token_hash: tokenHash,
+        machine_ipaddress: clientIpAddress,
+      });
+
+      context.res.setHeader("x-auth-token", `Bearer ${token}`);
+
+      return { token };
+
+      // return user;
     },
     change_password: async (parent, args) => {
       const salt = await bcrypt.genSalt();
