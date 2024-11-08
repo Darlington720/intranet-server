@@ -2,6 +2,7 @@ import { db } from "../../config/config.js";
 import { GraphQLError, version } from "graphql";
 import generateUniqueID from "../../utilities/generateUniqueID.js";
 import saveData from "../../utilities/db/saveData.js";
+import softDelete from "../../utilities/db/softDelete.js";
 
 export const getAllCourses = async ({ school_id }) => {
   try {
@@ -796,7 +797,6 @@ const courseResolvers = {
         throw new GraphQLError("Failed to register course " + error.message);
       }
     },
-
     removeAdvertisedCourse: async (parent, args) => {
       try {
         const { advertised_course_id, added_by } = args;
@@ -850,6 +850,19 @@ const courseResolvers = {
       return {
         success: "true",
         message: "Program alias Saved Successfully!",
+      };
+    },
+    deleteCourseAlias: async (parent, args) => {
+      const { alias_id } = args;
+
+      await softDelete({
+        table: "course_aliases",
+        id: alias_id,
+      });
+
+      return {
+        success: "true",
+        message: "Program alias Deleted Successfully!",
       };
     },
   },

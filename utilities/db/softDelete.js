@@ -12,7 +12,7 @@ const softDelete = async ({ table, id }) => {
 
     const [results, fields] = await db.execute(sql, [id]);
 
-    // console.log("delete results", results);
+    // console.log("affected rows", results.affectedRows);
 
     if (!results.affectedRows) {
       //   return 0; // No rows were affected, possibly invalid ID

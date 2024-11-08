@@ -107,6 +107,7 @@ const courseTypeDefs = `#graphql
         saveAdvertisedCourse(running_admission_id: String!, course_id: String!, added_by: String!): ResponseMessage
         removeAdvertisedCourse(advertised_course_id: String!, added_by: String!): ResponseMessage
         saveCourseAlias(alias: aliasInput!, added_by: String!): ResponseMessage
+        deleteCourseAlias(alias_id: ID!): ResponseMessage
         # deleteDepartment(dpt_id: String!): [Department]
     }
 
