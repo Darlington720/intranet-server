@@ -11,6 +11,11 @@ const courseUnitTypeDefs = `#graphql
         course_unit_level: String!,
         credit_units: String!,
         grading_id: String!,
+        added_on: String!,
+        last_modified_on: String,
+        added_user: Staff,
+        last_modified_user: Staff,
+
     }
 
     type Query {
@@ -20,6 +25,8 @@ const courseUnitTypeDefs = `#graphql
     type Mutation {
         generateModuleCode(course_code: String!): String
         saveCourseUnit(course_unit: CourseUnitInput!, saved_by: String!): ResponseMessage
+        uploadCourseUnits(course_units: [CourseUnitUploadInput]!): ResponseMessage
+        deleteCourseUnit(unit_id: String!): ResponseMessage
     }
 
     input CourseUnitInput {
@@ -34,6 +41,19 @@ const courseUnitTypeDefs = `#graphql
         credit_units: String!,
         grading_id: String!,
     }
+
+    input CourseUnitUploadInput {
+        module_code: String!,
+        module_title: String!,
+        course_code: String!,
+        course_version: String!,
+        credit_units: Int!,
+        module_level: String!,
+        grading_id: String!,
+        module_year: Int!,
+        module_sem: Int!,
+    }
+
 `;
 
 export default courseUnitTypeDefs;

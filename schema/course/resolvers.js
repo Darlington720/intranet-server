@@ -67,6 +67,42 @@ export const getCourseByID = async (course_id) => {
   }
 };
 
+export const getCourse = async ({ course_code, course_version }) => {
+  try {
+    let values = [];
+    let where = "";
+
+    if (course_code) {
+      where += " AND courses.course_code = ?";
+      values.push(course_code);
+    }
+
+    if (course_version) {
+      where += " AND course_versions.version_title = ?";
+      values.push(course_version);
+    }
+    let sql = `
+    SELECT 
+      courses.*,
+      course_versions.id AS course_version_id
+    FROM courses 
+    LEFT JOIN course_versions ON courses.id = course_versions.course_id
+    WHERE courses.deleted = 0 ${where}`;
+
+    const [results, fields] = await db.execute(sql, values);
+    // console.log("results", results);
+    return results; // returning the course
+  } catch (error) {
+    // console.log("error", error);
+    throw new GraphQLError("Error fetching courses", {
+      extensions: {
+        code: "UNAUTHENTICATED",
+        http: { status: 501 },
+      },
+    });
+  }
+};
+
 const getCourseVersionDetails = async (course_version_id) => {
   try {
     let sql = `SELECT * FROM course_versions WHERE id = ? AND deleted = 0`;

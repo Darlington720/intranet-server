@@ -1,21 +1,28 @@
 import { db } from "../../config/config.js";
 import { GraphQLError } from "graphql";
 
-const getAllGrading = async () => {
+export const getAllGrading = async ({ id, grading_title }) => {
   try {
-    let sql = `SELECT * FROM grading_systems WHERE deleted = 0`;
+    let values = [];
+    let where = "";
 
-    const [results, fields] = await db.execute(sql);
+    if (id) {
+      where += " AND grading_systems.id = ?";
+      values.push(id);
+    }
+
+    if (grading_title) {
+      where += " AND grading_systems.grading_title = ?";
+      values.push(grading_title);
+    }
+    let sql = `SELECT * FROM grading_systems WHERE deleted = 0 ${where}`;
+
+    const [results, fields] = await db.execute(sql, values);
     // console.log("results", results);
     return results;
   } catch (error) {
-    // console.log("error", error);
-    throw new GraphQLError("Error fetching departments", {
-      extensions: {
-        code: "UNAUTHENTICATED",
-        http: { status: 501 },
-      },
-    });
+    console.log("error", error.message);
+    throw new GraphQLError("Error fetching grading systems " + error.message);
   }
 };
 
@@ -41,7 +48,7 @@ const getGradingDetails = async (grading_id) => {
 const gradingResolvers = {
   Query: {
     grading: async () => {
-      const result = await getAllGrading();
+      const result = await getAllGrading({});
       return result;
     },
     grading_details: async (parent, args) => {
