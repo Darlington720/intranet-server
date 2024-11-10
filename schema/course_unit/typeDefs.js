@@ -15,7 +15,12 @@ const courseUnitTypeDefs = `#graphql
         last_modified_on: String,
         added_user: Staff,
         last_modified_user: Staff,
+    }
 
+    type StudentRegisteredCourseUnit {
+        course_unit: CourseUnit,
+        enrollment_status: String! # normal, retake or missed
+        paid: Int
     }
 
     type Query {

@@ -328,10 +328,10 @@ const studentEnrollmentResolvers = {
           activeSem
         );
 
-        console.log("active sem:", activeSem);
-        console.log("Expected Sems:", expectedSemesters);
-        console.log("Dead Semesters Up To Next Enrollment:", deadSemesters);
-        console.log("Next Enrollment:", nextEnrollment);
+        // console.log("active sem:", activeSem);
+        // console.log("Expected Sems:", expectedSemesters);
+        // console.log("Dead Semesters Up To Next Enrollment:", deadSemesters);
+        // console.log("Next Enrollment:", nextEnrollment);
 
         // check if the student has already enrolled in the current sem
         let existingEnrollment = enrollmentHistWithoutDeadSemesters.find(

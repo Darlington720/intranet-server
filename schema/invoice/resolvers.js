@@ -14,6 +14,7 @@ import distributeFees from "../../utilities/distributeFeesToSemesters.js";
 import { getOtherFees } from "../other_fee/resolvers.js";
 import generateInvoiceNoForDeadSem from "../../utilities/generateInvoiceNoForDeadSem.js";
 import { getInvoiceAllocations } from "../allocation/resolvers.js";
+import createMissedAndRetakeInvoiceNo from "../../utilities/createMissedAndRetakeInvoiceNo.js";
 
 const getInvoiceLineItems = async ({ invoice_no }) => {
   try {
@@ -556,6 +557,105 @@ export const createDeadSemInvoice = async ({
     //   data: line_items_data,
     //   id: null,
     // });
+  } catch (error) {
+    throw new GraphQLError(error.message);
+  }
+};
+
+export const createMissedAndRetakeInvoice = async ({
+  student_details,
+  student_no,
+  academic_year,
+  study_year,
+  semester,
+  invoice_category,
+  invoice_type,
+  course_unit_code,
+}) => {
+  try {
+    const invoice_no = await createMissedAndRetakeInvoiceNo({
+      student_no,
+      invoice_category,
+      course_unit_code,
+    });
+    const applicant = await getApplicant(student_details[0].applicant_id);
+
+    if (!applicant) {
+      throw new GraphQLError(`Failed to locate student biodata`);
+    }
+
+    const other_fees = await getOtherFees({
+      acc_yr_id: academic_year,
+      campus_id: student_details[0].campus_id,
+      intake_id: student_details[0].intake_id,
+      nationality_category_id: applicant.nationality_category_id,
+      fee_name: invoice_category,
+    });
+
+    if (!other_fees[0]) {
+      throw new GraphQLError("The fee needed for allocation is not yet set!");
+    }
+
+    // console.log("the fees", other_fees);
+
+    let amount = 0;
+    let amount_paid = 0;
+    amount += parseInt(other_fees[0].amount);
+
+    const data = {
+      student_no,
+      student_id: student_details[0].id,
+      invoice_no: invoice_no,
+      reference: `${student_no} ${invoice_category.toUpperCase()} FEES`,
+      currency_code: "UGX",
+      invoice_date: new Date(),
+      // due_date: dueDate,
+      narration: invoice_category.toUpperCase(),
+      study_year,
+      semester,
+      acc_yr_id: academic_year,
+      total_amount: amount,
+      total_credit: 0,
+      total_ppas: 0,
+      total_dps: 0,
+      amount_paid,
+      amount_due: amount - amount_paid,
+      status: "pending",
+      paid: 0,
+      voided: 0,
+      invoice_type: invoice_type,
+      invoice_category: invoice_category,
+    };
+
+    // then the line items
+    const line_items_data = {
+      invoice_no: invoice_no,
+      student_no,
+      item_id: other_fees[0].item_id,
+      item_code: other_fees[0].item_code,
+      unit_amount: other_fees[0].amount,
+      quantity: 1,
+      item_description: other_fees[0].item_description,
+      item_comments: other_fees[0].item_description,
+      date: new Date(),
+    };
+
+    // console.log("created Invoice", data);
+    // console.log("the line items", line_items_data);
+
+    await saveData({
+      table: "student_invoices",
+      data,
+      id: null,
+    });
+
+    await saveData({
+      table: "line_items",
+      data: line_items_data,
+      id: null,
+    });
+
+    return invoice_no;
   } catch (error) {
     throw new GraphQLError(error.message);
   }

@@ -69,7 +69,7 @@ export const getOtherFees = async ({
     fees_items.category_id 
     FROM other_fees 
     LEFT JOIN fees_items ON other_fees.item_id = fees_items.id
-    WHERE other_fees.deleted = 0 ${where}`;
+    WHERE other_fees.deleted = 0 ${where} ORDER BY fees_items.item_name ASC`;
 
     const [results, fields] = await db.execute(sql, values);
     // console.log("results", results);
