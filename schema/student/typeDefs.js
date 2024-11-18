@@ -38,9 +38,9 @@ const studentTypeDefs = `#graphql
         current_info: CurrentStudentInfo
         # enrollment_status: String # this is supposed to be Not Enrolled, or Enrolled,
         enrollment_history: [StudentEnrollment]!
+        registration_history: [StudentRegistration]!
         invoices: [Invoice]!
         # registration_status
-        # registration_track
         # transactions
         # has_completed
         # has_graduated
@@ -66,7 +66,7 @@ const studentTypeDefs = `#graphql
         true_study_yr: String,
         enrollment_status: String!,
         progress: String!,
-        # registration_status: String
+        registration_status: String
         account_balance: Int
     }
 

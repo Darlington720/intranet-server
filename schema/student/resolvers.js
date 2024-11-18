@@ -13,6 +13,7 @@ import {
   generateSemesterListForNormalProgress,
 } from "../../utilities/calculateEnrollment.js";
 import { getStudentInvoices } from "../invoice/resolvers.js";
+import { getStudentRegistrationHistory } from "../student_registration/resolvers.js";
 
 export const getApplicant = async (applicant_id) => {
   try {
@@ -289,15 +290,30 @@ const studentResolvers = {
     },
     enrollment_history: async (parent, args) => {
       try {
-        const id = parent.id;
+        const student_no = parent.student_no;
 
         // console.log("id", id);
 
         const results = await getStudentEnrollment({
-          std_id: id,
+          std_no: student_no,
         });
 
         // console.log("results", results);
+
+        return results;
+      } catch (error) {
+        // console.log("error", error);
+        throw new GraphQLError(error.message);
+      }
+    },
+
+    registration_history: async (parent, args) => {
+      try {
+        const student_no = parent.student_no;
+
+        const results = await getStudentRegistrationHistory({
+          std_no: student_no,
+        });
 
         return results;
       } catch (error) {
@@ -311,6 +327,7 @@ const studentResolvers = {
 
       try {
         let enrollment_status = null;
+        let registration_status = null;
         // lets first get the most recent enrollment
         let sql = `SELECT students_enrollment.*, acc_yrs.acc_yr_title
         FROM students_enrollment 
@@ -435,6 +452,23 @@ const studentResolvers = {
           student_no,
         });
 
+        // get Student Registration status
+        const existingRegistration = await getStudentRegistrationHistory({
+          std_no: student_no,
+          study_yr: nextEnrollment?.studyYear,
+          sem: deadSem[0]
+            ? all_student_enrollment[0]?.next_sem
+            : enrollmentHist.length > 0
+            ? runningSem.semester
+            : nextEnrollment.semester,
+        });
+
+        if (existingRegistration.length == 0) {
+          registration_status = "Not Registered";
+        } else {
+          registration_status = "Registered";
+        }
+
         const data = {
           recent_enrollment: recentEn,
           current_acc_yr: runningSem.acc_yr_title,
@@ -452,6 +486,7 @@ const studentResolvers = {
               ? `BEHIND BY ${deadSem.length} SEM(S)`
               : "NORMAL",
           account_balance: account_balance || 0,
+          registration_status,
         };
 
         // console.log("the data", data);
