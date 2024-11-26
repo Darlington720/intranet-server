@@ -29,6 +29,8 @@ import bodyParser from "body-parser";
 import findImageWithExtension from "./utilities/findImageWithExtension.js";
 import { fileURLToPath } from "url";
 import authenticateUser from "./middleware/auth.js";
+import { format } from "fast-csv";
+import { getStudentRegistrationReport } from "./schema/student_registration/resolvers.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1676,6 +1678,85 @@ app.get("/api/test_route", (req, res) => {
   const treeData = generateTreeDataWithUniqueIds(data);
 
   res.send(treeData);
+});
+
+app.get("/download-student-reg-report", async (req, res) => {
+  // await authenticateUser({ req });
+  const {
+    campus_id,
+    college_id,
+    intake_id,
+    acc_yr_id,
+    study_time_id,
+    semester,
+    school_id,
+    course_id,
+  } = req.query;
+
+  // console.log("query", req.query);
+
+  try {
+    // Fetch data from the database
+    const results = await getStudentRegistrationReport({
+      campus_id,
+      college_id,
+      intake_id,
+      acc_yr_id,
+      study_time_id,
+      semester,
+      school_id,
+      course_id,
+      details: true,
+    });
+
+    // console.log("results", results);
+    // const rows = [
+    //   {
+    //     stdno: "200101041",
+    //     name: "Rahul",
+    //     course: "Btech",
+    //     semester: "1",
+    //     campus: "Kolhapur",
+    //     college: "COE",
+    //     intake: "2020",
+    //     acc_yr: "2020-21",
+    //     study_time: "Day",
+    //     school: "CSE",
+    //     course_id: "BTECH",
+    //     campus_id: "KOL",
+    //     college_id: "COE",
+    //     intake_id: "2020",
+    //     acc_yr_id: "2020-21",
+    //     study_time_id: "DAY",
+    //     school_id: "CSE",
+    //     new: "testing",
+    //   },
+    // ];
+
+    // if (!results.length) {
+    //   throw new GraphQLError("No data found for the specified criteria.");
+    // }
+
+    // const formattedRows = results.map((row) => ({
+    //   ...row,
+    //   phone_no: `'${row.phone_no}'`, // Prefix phone_no with a single quote
+    // }));
+
+    // Stream CSV data to the response
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="registration_report_${Date.now()}.csv"`
+    );
+    res.setHeader("Content-Type", "text/csv");
+
+    const csvStream = format({ headers: true });
+    csvStream.pipe(res);
+    results.forEach((row) => csvStream.write(row));
+    csvStream.end();
+  } catch (error) {
+    console.error("Error generating report:", error);
+    res.status(500).send("An error occurred while generating the report.");
+  }
 });
 
 const server = new ApolloServer({

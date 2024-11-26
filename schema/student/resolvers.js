@@ -463,10 +463,22 @@ const studentResolvers = {
             : nextEnrollment.semester,
         });
 
-        if (existingRegistration.length == 0) {
+        const currentDate = new Date();
+
+        if (existingRegistration.length === 0) {
           registration_status = "Not Registered";
         } else {
-          registration_status = "Registered";
+          const registration = existingRegistration[0]; // Assume we are checking the first registration
+          if (registration.provisional) {
+            const provisionalExpiry = new Date(registration.provisional_expiry); // Parse the expiry string into a Date object
+            if (currentDate < provisionalExpiry) {
+              registration_status = "Provisionally Registered";
+            } else {
+              registration_status = "Not Registered";
+            }
+          } else {
+            registration_status = "Registered";
+          }
         }
 
         const data = {

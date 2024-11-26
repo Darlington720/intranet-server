@@ -70,6 +70,59 @@ const studentTypeDefs = `#graphql
         account_balance: Int
     }
 
+    type StudentReport {
+        id: ID!
+        student_no: String!,
+        registration_no: String!,
+        surname: String!,
+        other_names: String!,
+        gender: String!,
+        email: String!,
+        phone_no: String!,
+        entry_acc_yr: String!,
+        nationality: String!,
+        billing_nationality: String!,
+        is_resident: Int,
+        hall_of_attachment: String,
+        hall_of_residence: String,
+        study_time: String!,
+        acc_yr: String!,
+        study_yr: String!,
+        sem: String!,
+        enrollment_token: String!,
+        enrollment_status: String!,
+        course_code: String!,
+        course_title: String!,
+        course_level: String!,
+        school_code: String!,
+        school_title: String!,
+        college_code: String!,
+        college_title: String!,
+        sponsorship: String,
+        campus: String!,
+        intake:  String!,
+        registration_token: String,
+        registration_status: String!,
+        registered: Int!,
+        provisional: Int,
+        enrollment_date: String!,
+        registration_date:  String!,
+        tuition_invoice_no: String!,
+        tuition_amount: String!,
+        tuition_credit: String,
+        tuition_paid: String,
+        tuition_balance_due: String,
+        functional_invoice_no: String!,
+        functional_amount: String!,
+        functional_credit: String,
+        functional_paid: String,
+        functional_balance_due: String,
+        total_bill: String,
+        total_credit: String,
+        total_paid: String,
+        total_due: String
+    }
+
 
 
     type Query {
