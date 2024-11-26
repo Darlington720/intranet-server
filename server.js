@@ -1764,7 +1764,7 @@ const server = new ApolloServer({
   resolvers,
   csrfPrevention: true,
   plugins: [ApolloServerPluginDrainHttpServer({ httpServer })],
-  introspection: true,
+  introspection: false,
   // formatError: (err) => {
   //   // Only expose custom error message and status if it's set
   //   const errorDetails = {
