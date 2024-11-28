@@ -6,6 +6,7 @@ import { GraphQLError } from "graphql";
 import express from "express";
 import path from "path";
 import http from "http";
+import https from "https";
 import bcrypt from "bcrypt";
 import {
   database,
@@ -38,6 +39,7 @@ const app = express();
 const httpServer = http.createServer(app);
 
 app.use(express.static("public"));
+// app.use(cors());
 
 const getActiveUniversitySession = async () => {
   let sql = "SELECT * FROM university_sessions ORDER BY us_id DESC LIMIT 1";
@@ -1680,8 +1682,56 @@ app.get("/api/test_route", (req, res) => {
   res.send(treeData);
 });
 
+// app.get("/download-student-reg-report", async (req, res) => {
+//   // await authenticateUser({ req });
+//   const {
+//     campus_id,
+//     college_id,
+//     intake_id,
+//     acc_yr_id,
+//     study_time_id,
+//     semester,
+//     school_id,
+//     course_id,
+//   } = req.query;
+
+//   // console.log("query", req.query);
+
+//   try {
+//     // Fetch data from the database
+//     const results = await getStudentRegistrationReport({
+//       campus_id,
+//       college_id,
+//       intake_id,
+//       acc_yr_id,
+//       study_time_id,
+//       semester,
+//       school_id,
+//       course_id,
+//       details: true,
+//     });
+
+//     // Stream CSV data to the response
+//     res.setHeader(
+//       "Content-Disposition",
+//       `attachment; filename="registration_report_${Date.now()}.csv"`
+//     );
+//     res.setHeader("Content-Type", "text/csv");
+
+//     const csvStream = format({ headers: true });
+//     csvStream.pipe(res);
+//     results.forEach((row) => csvStream.write(row));
+//     csvStream.end();
+//   } catch (error) {
+//     console.error("Error generating report:", error);
+//     res.status(500).send("An error occurred while generating the report.");
+//   }
+// });
+
 app.get("/download-student-reg-report", async (req, res) => {
+  // Ensure user is authenticated if necessary
   // await authenticateUser({ req });
+
   const {
     campus_id,
     college_id,
@@ -1693,10 +1743,8 @@ app.get("/download-student-reg-report", async (req, res) => {
     course_id,
   } = req.query;
 
-  // console.log("query", req.query);
-
   try {
-    // Fetch data from the database
+    // Fetch data from the database (assuming async call)
     const results = await getStudentRegistrationReport({
       campus_id,
       college_id,
@@ -1709,39 +1757,6 @@ app.get("/download-student-reg-report", async (req, res) => {
       details: true,
     });
 
-    // console.log("results", results);
-    // const rows = [
-    //   {
-    //     stdno: "200101041",
-    //     name: "Rahul",
-    //     course: "Btech",
-    //     semester: "1",
-    //     campus: "Kolhapur",
-    //     college: "COE",
-    //     intake: "2020",
-    //     acc_yr: "2020-21",
-    //     study_time: "Day",
-    //     school: "CSE",
-    //     course_id: "BTECH",
-    //     campus_id: "KOL",
-    //     college_id: "COE",
-    //     intake_id: "2020",
-    //     acc_yr_id: "2020-21",
-    //     study_time_id: "DAY",
-    //     school_id: "CSE",
-    //     new: "testing",
-    //   },
-    // ];
-
-    // if (!results.length) {
-    //   throw new GraphQLError("No data found for the specified criteria.");
-    // }
-
-    // const formattedRows = results.map((row) => ({
-    //   ...row,
-    //   phone_no: `'${row.phone_no}'`, // Prefix phone_no with a single quote
-    // }));
-
     // Stream CSV data to the response
     res.setHeader(
       "Content-Disposition",
@@ -1750,9 +1765,14 @@ app.get("/download-student-reg-report", async (req, res) => {
     res.setHeader("Content-Type", "text/csv");
 
     const csvStream = format({ headers: true });
-    csvStream.pipe(res);
-    results.forEach((row) => csvStream.write(row));
-    csvStream.end();
+    csvStream.pipe(res); // Pipes the CSV stream directly to the response
+
+    // Use a chunk-by-chunk streaming mechanism for larger datasets
+    results.forEach((row) => {
+      csvStream.write(row); // Write each row to the stream
+    });
+
+    csvStream.end(); // End the stream once all rows are written
   } catch (error) {
     console.error("Error generating report:", error);
     res.status(500).send("An error occurred while generating the report.");
@@ -1764,7 +1784,7 @@ const server = new ApolloServer({
   resolvers,
   csrfPrevention: true,
   plugins: [ApolloServerPluginDrainHttpServer({ httpServer })],
-  introspection: false,
+  introspection: true,
   // formatError: (err) => {
   //   // Only expose custom error message and status if it's set
   //   const errorDetails = {
@@ -1788,8 +1808,9 @@ await server.start();
 app.use(
   "/",
   cors(),
-  bodyParser.json(),
+  bodyParser.json({ limit: "50mb" }),
   graphqlUploadExpress(),
+
   expressMiddleware(server, {
     // context: async ({ req }) => ({ token: req.headers.token }),
     context: async ({ req, res }) => {

@@ -84,7 +84,8 @@ export const getCourse = async ({ course_code, course_version }) => {
     let sql = `
     SELECT 
       courses.*,
-      course_versions.id AS course_version_id
+      course_versions.id AS course_version_id,
+      course_versions.version_title
     FROM courses 
     LEFT JOIN course_versions ON courses.id = course_versions.course_id
     WHERE courses.deleted = 0 ${where}`;

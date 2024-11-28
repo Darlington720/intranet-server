@@ -15,6 +15,32 @@ const getAllIntakes = async () => {
   }
 };
 
+export const getIntake = async ({ id, intake_title }) => {
+  try {
+    let where = "";
+    let values = [];
+
+    if (id) {
+      where += "AND id = ?";
+      values.push(id);
+    }
+
+    if (intake_title) {
+      where += " AND intake_title LIKE ?";
+      values.push("%" + intake_title + "%");
+    }
+
+    let sql = `SELECT * FROM intakes WHERE deleted = 0 ${where}`;
+
+    const [results] = await db.execute(sql, values);
+    // console.log("results", results);
+    return results;
+  } catch (error) {
+    console.log("error", error);
+    throw new GraphQLError("Error fetching intakes");
+  }
+};
+
 const intakeResolvers = {
   Query: {
     intakes: async () => {

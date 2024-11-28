@@ -15,6 +15,32 @@ const getAllStudyTimes = async () => {
   }
 };
 
+export const getStudyTime = async ({ id, study_time_title }) => {
+  try {
+    let where = "";
+    let values = [];
+
+    if (id) {
+      where += "AND id = ?";
+      values.push(id);
+    }
+
+    if (study_time_title) {
+      where += " AND study_time_title LIKE ?";
+      values.push("%" + study_time_title + "%");
+    }
+
+    let sql = `SELECT * FROM study_times WHERE deleted = 0 ${where}`;
+
+    const [results] = await db.execute(sql, values);
+    // console.log("results", results);
+    return results;
+  } catch (error) {
+    console.log("error", error);
+    throw new GraphQLError("Error fetching study times");
+  }
+};
+
 const studyTimeResolvers = {
   Query: {
     study_times: async () => {

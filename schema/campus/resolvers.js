@@ -15,6 +15,32 @@ const getAllCampuses = async () => {
   }
 };
 
+export const getCampus = async ({ id, campus_title }) => {
+  try {
+    let where = "";
+    let values = [];
+
+    if (id) {
+      where += "AND id = ?";
+      values.push(id);
+    }
+
+    if (campus_title) {
+      where += " AND campus_title LIKE ?";
+      values.push("%" + campus_title + "%");
+    }
+
+    let sql = `SELECT * FROM campuses WHERE deleted = 0 ${where}`;
+
+    const [results] = await db.execute(sql, values);
+    // console.log("results", results);
+    return results;
+  } catch (error) {
+    console.log("error", error);
+    throw new GraphQLError("Error fetching campuses");
+  }
+};
+
 const campusResolvers = {
   Query: {
     campuses: async () => {

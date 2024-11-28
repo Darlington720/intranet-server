@@ -30,6 +30,7 @@ export const getStudentRegistrationHistory = async ({
   std_no,
   study_yr,
   sem,
+  acc_yr,
 }) => {
   try {
     let where = "";
@@ -48,6 +49,11 @@ export const getStudentRegistrationHistory = async ({
     if (sem) {
       where += " AND students_registration.sem = ?";
       values.push(sem);
+    }
+
+    if (acc_yr) {
+      where += " AND students_registration.acc_yr_id = ?";
+      values.push(acc_yr);
     }
 
     let sql = `SELECT students_registration.*, acc_yrs.acc_yr_title

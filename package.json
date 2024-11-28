@@ -27,6 +27,8 @@
     "graphql-upload": "^16.0.2",
     "jsonwebtoken": "^9.0.2",
     "knex": "^3.1.0",
+    "lodash": "^4.17.21",
+    "lodash.chunk": "^4.2.0",
     "moment": "^2.30.1",
     "mysql": "^2.18.1",
     "mysql2": "^3.9.3",

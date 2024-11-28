@@ -53,6 +53,7 @@ const db = await mysql.createConnection({
   host: "localhost",
   user: "root",
   database: "intranet",
+  // password: "t9r8pUewXE",
 });
 
 // console.log("database", db);
