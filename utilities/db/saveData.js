@@ -33,7 +33,7 @@ import { GraphQLError } from "graphql";
 //   }
 // };
 
-const saveData = async ({ table, id, data }) => {
+const saveData = async ({ table, id, data, idColumn = "id" }) => {
   try {
     // Handle array case separately
     if (Array.isArray(data)) {
@@ -59,11 +59,14 @@ const saveData = async ({ table, id, data }) => {
 
     if (id) {
       // Update
+
       let setClause = columns.map((col) => `${col} = ?`).join(", ");
-      let sql = `UPDATE ${table} SET ${setClause} WHERE id = ?`;
+      let sql = `UPDATE ${table} SET ${setClause} WHERE ${idColumn} = ?`;
+
       values.push(id); // Append the id to the values array for the WHERE clause
 
-      const [results, fields] = await db.execute(sql, values);
+      const [results] = await db.execute(sql, values);
+
       if (!results.affectedRows) {
         return 0;
       }
@@ -79,7 +82,7 @@ const saveData = async ({ table, id, data }) => {
       return results.insertId;
     }
   } catch (error) {
-    console.log(error.message);
+    // console.log("eroor", error.message);
     throw new GraphQLError(error.message);
   }
 };

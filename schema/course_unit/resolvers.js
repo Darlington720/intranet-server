@@ -12,7 +12,7 @@ const getCourseUnits = async ({ course_version_id }) => {
     let values = [course_version_id];
 
     const [results, fields] = await db.execute(sql, values);
-    // console.log("results", results);
+    console.log("results", results);
     return results;
   } catch (error) {
     console.log("error", error);

@@ -145,7 +145,7 @@ const schoolResolvers = {
       const school_id = parent.id;
 
       try {
-        let sql = `SELECT * FROM departments WHERE school_id = ? AND deleted = 0 `;
+        let sql = `SELECT * FROM departments WHERE school_id = ? AND deleted = 0`;
 
         let values = [school_id];
 

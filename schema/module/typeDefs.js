@@ -4,7 +4,8 @@ type Module {
         id: ID!,
         title: String!,
         route: String!,
-        logo: String!
+        logo: String!,
+        permissions: [ModulePermission]!
     }
      
 type Query {

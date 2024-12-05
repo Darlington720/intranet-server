@@ -9,10 +9,10 @@ const courseTypeDefs = `#graphql
         course_head_id: String, 
         campuses: String,
         entry_yrs: String,
-        college_id: String!,
-        school_id: String!,
-        department_id: String!,
-        level: String!,
+        college_id: String,
+        school_id: String,
+        department_id: String,
+        level: String,
         award: String,
         grading_id: String!,
         study_times: String,
@@ -40,7 +40,7 @@ const courseTypeDefs = `#graphql
         added_by: String!,
         modified_on: String,
         modified_by: String
-        course: Course!,
+        course: Course,
         added_user: Staff,
         modified_user: Staff
         # course_units: [CourseUnit]

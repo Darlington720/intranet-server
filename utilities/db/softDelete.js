@@ -1,14 +1,14 @@
 import { db } from "../../config/config.js";
 import { GraphQLError } from "graphql";
 
-const softDelete = async ({ table, id }) => {
+const softDelete = async ({ table, id, idColumn = "id" }) => {
   try {
     if (!id) {
       throw new Error("ID is required for deletion.");
     }
 
     // Soft delete by setting the `deleted` column to 1
-    let sql = `UPDATE ${table} SET deleted = 1 WHERE id = ?`;
+    let sql = `UPDATE ${table} SET deleted = 1 WHERE ${idColumn} = ?`;
 
     const [results, fields] = await db.execute(sql, [id]);
 

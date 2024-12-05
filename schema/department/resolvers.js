@@ -1,6 +1,38 @@
 import { db } from "../../config/config.js";
 import { GraphQLError } from "graphql";
 import generateUniqueID from "../../utilities/generateUniqueID.js";
+import DataLoader from "dataloader";
+
+// Create a DataLoader for courses
+const courseLoader = new DataLoader(async (departmentIds) => {
+  // Execute a single query for all department IDs
+  // console.log("department ids", departmentIds);
+  const [courses] = await db.execute(
+    `
+    SELECT 
+      courses.id,
+      course_code,
+      course_title,
+      course_duration,
+      department_id,
+      college_id
+    FROM courses 
+    WHERE department_id IN (${departmentIds.map(() => "?").join(",")}) 
+    AND deleted = 0 
+    ORDER BY course_code ASC
+  `,
+    departmentIds
+  );
+
+  // Group courses by department_id
+  const coursesByDepartment = departmentIds.map((id) =>
+    courses.filter((course) => course.department_id === id)
+  );
+
+  // console.log("courses", coursesByDepartment);
+
+  return coursesByDepartment;
+});
 
 const getAllDepartments = async () => {
   try {
@@ -67,37 +99,38 @@ const departmentResolvers = {
         });
       }
     },
-    courses: async (parent, args) => {
-      try {
-        let where = "";
-        const dpt_id = parent.id;
-        let values = [dpt_id];
+    // courses: async (parent, args) => {
+    //   try {
+    //     let where = "";
+    //     const dpt_id = parent.id;
+    //     let values = [dpt_id];
 
-        if (args.campus_id) {
-          where += ` AND JSON_CONTAINS(
-            campuses,
-            JSON_OBJECT(
-              'value', ?
-            ),
-            '$'
-          )`;
-          values.push(args.campus_id);
-        }
-        let sql = `SELECT * FROM courses WHERE department_id = ? AND deleted = 0 ${where} ORDER BY course_code ASC`;
+    //     if (args.campus_id) {
+    //       where += ` AND JSON_CONTAINS(
+    //         campuses,
+    //         JSON_OBJECT(
+    //           'value', ?
+    //         ),
+    //         '$'
+    //       )`;
+    //       values.push(args.campus_id);
+    //     }
+    //     let sql = `SELECT * FROM courses WHERE department_id = ? AND deleted = 0 ${where} ORDER BY course_code ASC`;
 
-        const [results, fields] = await db.execute(sql, values);
-        // console.log("results", results);
-        return results; // expecting many courses
-      } catch (error) {
-        // console.log("error", error);
-        throw new GraphQLError("Error fetching courses", {
-          extensions: {
-            code: "UNAUTHENTICATED",
-            http: { status: 501 },
-          },
-        });
-      }
-    },
+    //     const [results, fields] = await db.execute(sql, values);
+    //     // console.log("results", results);
+    //     return results; // expecting many courses
+    //   } catch (error) {
+    //     // console.log("error", error);
+    //     throw new GraphQLError("Error fetching courses", {
+    //       extensions: {
+    //         code: "UNAUTHENTICATED",
+    //         http: { status: 501 },
+    //       },
+    //     });
+    //   }
+    // },
+    courses: (parent) => courseLoader.load(parent.id),
     added_user: async (parent, args) => {
       try {
         const user_id = parent.added_by;

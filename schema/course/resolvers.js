@@ -3,6 +3,7 @@ import { GraphQLError, version } from "graphql";
 import generateUniqueID from "../../utilities/generateUniqueID.js";
 import saveData from "../../utilities/db/saveData.js";
 import softDelete from "../../utilities/db/softDelete.js";
+import DataLoader from "dataloader";
 
 export const getAllCourses = async ({ school_id }) => {
   try {
@@ -67,6 +68,23 @@ export const getCourseByID = async (course_id) => {
   }
 };
 
+const courseLoader = new DataLoader(async (courseIds) => {
+  // console.log("course ids", courseIds);
+  const placeholders = courseIds.map(() => "?").join(",");
+  const sql = `SELECT 
+  *
+  FROM courses WHERE id IN (${placeholders}) AND deleted = 0`;
+  const [results] = await db.execute(sql, courseIds);
+
+  // Map results by course_id
+  const courseMap = courseIds.map(
+    (id) => results.find((course) => course.id === id) || null
+  );
+
+  // console.log("course Map", courseMap);
+  return courseMap;
+});
+
 export const getCourse = async ({ course_code, course_version }) => {
   try {
     let values = [];
@@ -125,7 +143,9 @@ const getCourseVersionDetails = async (course_version_id) => {
 
 const getCourseVersions = async (course_id) => {
   try {
-    let sql = `SELECT * FROM course_versions WHERE course_id = ? AND deleted = 0 ORDER BY added_on ASC`;
+    // let sql = `SELECT * FROM course_versions WHERE course_id = ? AND deleted = 0 ORDER BY added_on ASC`;
+    let sql = `SELECT * FROM course_versions WHERE course_id = ? AND deleted = 0`;
+
     let values = [course_id];
 
     const [results, fields] = await db.execute(sql, values);
@@ -141,6 +161,23 @@ const getCourseVersions = async (course_id) => {
     });
   }
 };
+
+const courseVersionLoader = new DataLoader(async (courseIds) => {
+  // console.log("course ids", courseIds);
+  const placeholders = courseIds.map(() => "?").join(",");
+  const sql = `SELECT 
+  *
+   FROM course_versions WHERE course_id IN (${placeholders}) AND deleted = 0 ORDER BY added_on ASC`;
+  const [results] = await db.execute(sql, courseIds);
+
+  // Group results by course_id
+  const courseMap = courseIds.map((id) =>
+    results.filter((cv) => cv.course_id === id)
+  );
+
+  // console.log("map", courseMap);
+  return courseMap;
+});
 
 const courseResolvers = {
   Query: {
@@ -236,11 +273,15 @@ const courseResolvers = {
     },
   },
   Course: {
-    course_versions: async (parent, args) => {
-      const course_id = parent.id;
-      // console.log("course id", course_id);
-      const result = await getCourseVersions(course_id);
-      return result; // returning all courses
+    // course_versions: async (parent, args) => {
+    //   const course_id = parent.id;
+    //   // console.log("course id", course_id);
+    //   const result = await getCourseVersions(course_id);
+    //   return result; // returning all courses
+    // },
+
+    course_versions: (parent) => {
+      return courseVersionLoader.load(parent.id);
     },
     department: async (parent, args) => {
       try {
@@ -389,10 +430,13 @@ const courseResolvers = {
     // },
   },
   CourseVersion: {
-    course: async (parent, args) => {
-      const course_id = parent.course_id;
-      const result = await getCourseByID(course_id);
-      return result; // returning the course
+    // course: async (parent, args) => {
+    //   const course_id = parent.course_id;
+    //   const result = await getCourseByID(course_id);
+    //   return result; // returning the course
+    // },
+    course: (parent) => {
+      return courseLoader.load(parent.course_id);
     },
     added_user: async (parent, args) => {
       try {

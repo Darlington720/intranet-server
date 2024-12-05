@@ -34,7 +34,7 @@ export const getAllRunningAdmissions = async ({
     let sql = `SELECT running_admissions.*, intakes.intake_title FROM 
     running_admissions
     LEFT JOIN intakes ON running_admissions.intake_id = intakes.id
-    WHERE deleted = 0 ${where} ORDER BY running_admissions.id DESC`;
+    WHERE running_admissions.deleted = 0 ${where} ORDER BY running_admissions.id DESC`;
 
     const [results, fields] = await db.execute(sql, values);
     // console.log("results", results);

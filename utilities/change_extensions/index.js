@@ -39,7 +39,7 @@ function changeExtensionInDirectory(directory, oldExt, newExt) {
 }
 
 // Specify the directory, old extension, and new extension
-const directory = "utilities/change_extensions/photos_manager";
+const directory = "utilities/change_extensions/config";
 const oldExt = ".js";
 const newExt = ".jsx";
 

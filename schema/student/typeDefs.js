@@ -174,7 +174,7 @@ const studentTypeDefs = `#graphql
         district: String,
         email: String,
         phone_no: String,
-        entry_acc_yr: String!,
+        entry_acc_yr: String,
         entry_study_yr: Int!,
         nationality: String!,
         sponsorship: Int,

@@ -11,6 +11,7 @@
   "license": "ISC",
   "dependencies": {
     "@apollo/server": "^4.10.0",
+    "@google-cloud/cloud-sql-connector": "^1.4.0",
     "@graphql-tools/load-files": "^7.0.0",
     "@graphql-tools/merge": "^9.0.4",
     "@graphql-tools/schema": "^10.0.3",
@@ -19,6 +20,7 @@
     "cors": "^2.8.5",
     "crypto": "^1.0.1",
     "csv-stringify": "^6.5.2",
+    "dataloader": "^2.2.2",
     "express": "^4.18.2",
     "fast-csv": "^5.0.2",
     "glob": "^10.4.1",
