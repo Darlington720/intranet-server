@@ -2,10 +2,28 @@ import jwt from "jsonwebtoken";
 import bcrypt from "bcrypt";
 import { _db, db, baseUrl, PRIVATE_KEY } from "../../config/config.js";
 import { GraphQLError } from "graphql";
+import { getEmployees } from "../employee/resolvers.js";
+import saveData from "../../utilities/db/saveData.js";
+import generatePassword from "../../utilities/generatePassword.js";
+import sendEmail from "../../utilities/emails/admission-mail.js";
+import saveDataWithOutDuplicates from "../../utilities/db/saveDataWithOutDuplicates.js";
+import { getUserRoles } from "../user_role/resolvers.js";
+import { getRoles } from "../role/resolvers.js";
 
-const getUser = async ({ id }) => {
+const getUsers = async () => {
   try {
-    if (!id) {
+    let sql = "SELECT * FROM management_users WHERE deleted = 0";
+    const [results] = await db.execute(sql);
+
+    return results;
+  } catch (error) {
+    throw new GraphQLError(error.message);
+  }
+};
+
+const getUser = async ({ id, user_id }) => {
+  try {
+    if (!id && !user_id) {
       throw new GraphQLError("User ID is required");
     }
 
@@ -17,9 +35,14 @@ const getUser = async ({ id }) => {
       values.push(id);
     }
 
+    if (user_id) {
+      where += " AND management_users.user_id = ?";
+      values.push(user_id);
+    }
+
     let sql = `SELECT * FROM management_users WHERE deleted = 0 ${where}`;
 
-    const [results, fields] = await db.execute(sql, values);
+    const [results] = await db.execute(sql, values);
 
     if (!results[0]) {
       throw new GraphQLError(`User not found`);
@@ -68,55 +91,40 @@ const userResolvers = {
   Query: {
     my_profile: async (parent, args, context) => {
       const user_id = context.req.user.id;
+      // console.log("user id", user_id);
       const user = await getUser({
-        id: user_id,
+        user_id: user_id,
       });
 
       return user;
     },
     users: async () => {
-      const results = await _db("management_users");
-      // console.log("roles", results);
-      return results;
+      const users = getUsers();
+
+      return users;
     },
   },
   User: {
     biodata: async (parent) => {
-      return await _db("staff")
-        .where({
-          id: parent.user_id,
-        })
-        .first();
+      const results = await getEmployees({
+        id: parent.user_id,
+      });
+      // console.log("employee", results);
+      return results[0];
     },
     last_logged_in: async (parent) => {
       const lastLogin = await getUserLastLoginDetails({
-        user_id: parent.id,
+        user_id: parent.user_id,
       });
       return lastLogin;
     },
     role: async (parent) => {
       try {
         // i want to get actual modules from `modules`
-        let sql =
-          "SELECT ur.* FROM user_assigned_roles AS r LEFT JOIN user_roles AS ur ON ur.id = r.role_id WHERE r.user_id = ?";
-        let values = [parent.id];
 
-        const [results, fields] = await db.execute(sql, values);
-
-        let sql2 =
-          "SELECT * FROM intranent_modules WHERE FIND_IN_SET(id, ?) > 0 ORDER BY sort ASC";
-
-        let values2 = [results[0] ? results[0].modules : ""];
-        const [results2, fields2] = await db.execute(sql2, values2);
-        //update the url to the module logos for each module
-        let modifiedModules = results2.map((m) => ({
-          ...m,
-          logo: `${baseUrl}${m.logo}`,
-        }));
-        // update the modules
-        results[0]._modules = modifiedModules;
-
-        // console.log("modules", results[0]);
+        const results = await getRoles({
+          id: parent.role_id,
+        });
 
         return results[0];
       } catch (error) {
@@ -193,10 +201,22 @@ const userResolvers = {
       // Access the IP address from the context
       const clientIpAddress = context.req.connection.remoteAddress;
 
+      // using the role_id, to get the role of the user
+      const [role] = await getRoles({
+        id: user.role_id,
+      });
+
+      if (!role) throw new GraphQLError("User has no role in the system!");
+
+      const firstExtract = JSON.parse(role.permissions);
+
+      const permissionsObj = JSON.parse(firstExtract);
+
       const SALT_ROUNDS = 10;
       const token = jwt.sign(
         {
-          id: user.id,
+          id: user.user_id,
+          permissions: permissionsObj,
         },
         PRIVATE_KEY,
         {
@@ -208,7 +228,7 @@ const userResolvers = {
 
       // create session for the login
       await _db("management_user_logins").insert({
-        user_id: user.id,
+        user_id: user.user_id,
         token_hash: tokenHash,
         machine_ipaddress: clientIpAddress,
       });
@@ -223,7 +243,7 @@ const userResolvers = {
       const user_id = context.req.user.id;
       const user = await _db("management_users")
         .where({
-          id: user_id,
+          user_id: user_id,
         })
         .first();
 
@@ -244,7 +264,7 @@ const userResolvers = {
       const SALT_ROUNDS = 10;
       const token = jwt.sign(
         {
-          id: user.id,
+          id: user.user_id,
         },
         PRIVATE_KEY,
         {
@@ -256,7 +276,7 @@ const userResolvers = {
 
       // create session for the login
       await _db("management_user_logins").insert({
-        user_id: user.id,
+        user_id: user.user_id,
         token_hash: tokenHash,
         machine_ipaddress: clientIpAddress,
       });
@@ -325,6 +345,69 @@ const userResolvers = {
       // console.log("user", user);
 
       return user;
+    },
+    addNewUser: async (parent, args, context) => {
+      const active_user_id = context.req.user.id;
+      const { user_id, role_id, employee_id } = args.payload;
+      let connection = await db.getConnection();
+
+      try {
+        await connection.beginTransaction();
+        // first, we need to check and see if we have the employee email in our records
+        const employees = await getEmployees({
+          id: employee_id,
+        });
+
+        if (!employees[0] || !employees[0].email)
+          throw new GraphQLError(
+            "No email found for the employee, Please contact the Human Resource Department to assign the employee email"
+          );
+
+        // generate unique password for employee
+        const salt = await bcrypt.genSalt();
+        const password = await generatePassword();
+        const hashedPwd = await bcrypt.hash(password, salt);
+
+        const data = {
+          user_id: employee_id,
+          email: user_id,
+          role_id,
+          pwd: hashedPwd,
+          created_on: new Date(),
+          created_by: active_user_id,
+          sys_gen_pwd: 1,
+        };
+
+        // lets first check if the account was already created
+
+        // then save in the db
+        await saveDataWithOutDuplicates({
+          table: "management_users",
+          data: data,
+          uniqueField: "user_id",
+          connection: connection,
+        });
+
+        // after successful creation, send an email to the employee along with his credentials
+        await sendEmail({
+          to: employees[0].email,
+          subject: "Nkumba University Account Creation",
+          message: `Dear ${employees[0].salutation} ${employees[0].surname} ${employees[0].other_names},\n\nYour account has been created \n\n This are your credentails: \n user_id: ${user_id} \n password: ${password} \n\n Please note that you are strongly enouraged to change your password after the first login.`,
+        });
+
+        await connection.commit();
+
+        return {
+          success: "true",
+          message:
+            "User created successfully, An email has been sent to the staff's registered email containg the login credentials.",
+        };
+      } catch (error) {
+        await connection.rollback();
+        throw new GraphQLError(error.message);
+      } finally {
+        connection.release(); // Always release the connection back to the pool
+      }
     },
   },
 };

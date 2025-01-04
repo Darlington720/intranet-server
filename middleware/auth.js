@@ -1,11 +1,12 @@
 import { GraphQLError } from "graphql";
 import jwt from "jsonwebtoken";
-import { PRIVATE_KEY } from "../config/config.js";
+import { PORTAL_PRIVATE_KEY, PRIVATE_KEY } from "../config/config.js";
 import { getUserLastLoginDetails } from "../schema/user/resolvers.js";
 import bcrypt from "bcrypt";
 
 const authenticateUser = async ({ req }) => {
   const authHeader = req.headers["authorization"];
+  const portalType = req.headers["x-portal-type"];
   const token = authHeader && authHeader.split(" ")[1];
 
   if (!token) {
@@ -14,9 +15,16 @@ const authenticateUser = async ({ req }) => {
     });
   }
 
+  let secretKey;
+  if (portalType === "student") {
+    secretKey = PORTAL_PRIVATE_KEY;
+  } else {
+    secretKey = PRIVATE_KEY;
+  }
+
   let decoded;
   try {
-    decoded = jwt.verify(token, PRIVATE_KEY);
+    decoded = jwt.verify(token, secretKey);
   } catch (error) {
     throw new GraphQLError("Invalid or expired token.", {
       extensions: { code: "UNAUTHENTICATED" },
@@ -27,6 +35,11 @@ const authenticateUser = async ({ req }) => {
     throw new GraphQLError("Invalid Token.", {
       extensions: { code: "UNAUTHENTICATED" },
     });
+  }
+
+  if (portalType == "student") {
+    req.user = decoded;
+    return;
   }
 
   // Continue with further checks if the token is verified

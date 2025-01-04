@@ -34,28 +34,31 @@ const courseLoader = new DataLoader(async (departmentIds) => {
   return coursesByDepartment;
 });
 
-const getAllDepartments = async () => {
+export const getDepartments = async ({ id }) => {
   try {
-    let sql = `SELECT * FROM departments WHERE deleted = 0`;
+    let values = [];
+    let where = "";
 
-    const [results, fields] = await db.execute(sql);
+    if (id) {
+      where += " AND id = ?";
+      values.push(id);
+    }
+
+    let sql = `SELECT * FROM departments WHERE deleted = 0 ${where}`;
+
+    const [results, fields] = await db.execute(sql, values);
     // console.log("results", results);
     return results;
   } catch (error) {
     // console.log("error", error);
-    throw new GraphQLError("Error fetching departments", {
-      extensions: {
-        code: "UNAUTHENTICATED",
-        http: { status: 501 },
-      },
-    });
+    throw new GraphQLError("Error fetching departments", error.message);
   }
 };
 
 const departmentResolvers = {
   Query: {
     departments: async () => {
-      const result = await getAllDepartments();
+      const result = await getDepartments({});
       return result;
     },
     departments_in_school: async (parent, args) => {
@@ -259,7 +262,7 @@ const departmentResolvers = {
         }
       }
 
-      const result = await getAllDepartments();
+      const result = await getDepartments({});
       // console.log("the schools", results);
 
       return result; // returning all schools
@@ -285,7 +288,7 @@ const departmentResolvers = {
           });
         }
 
-        const result = await getAllDepartments();
+        const result = await getDepartments({});
         return result;
       } catch (error) {
         throw new GraphQLError(error);

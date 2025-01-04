@@ -1,0 +1,391 @@
+import { db } from "../../config/config.js";
+import { GraphQLError } from "graphql";
+import generateUniqueID from "../../utilities/generateUniqueID.js";
+import { getCourseUnits } from "../course_unit/resolvers.js";
+import fetchOrCreateRecord from "../../utilities/helpers/fetchOrCreateRecord.js";
+import { getEmployees } from "../employee/resolvers.js";
+import saveData from "../../utilities/db/saveData.js";
+import calculateGrades from "../../utilities/helpers/calculateGrades.js";
+import { getStudents } from "../student/resolvers.js";
+
+export const getStdMarks = async ({
+  student_no,
+  module_id,
+  student_nos,
+  start,
+  limit,
+}) => {
+  try {
+    let whereClauses = [];
+    let values = [];
+
+    if (student_no) {
+      whereClauses.push("results.student_no = ?");
+      values.push(student_no);
+    }
+
+    if (module_id) {
+      whereClauses.push("results.module_id = ?");
+      values.push(module_id);
+    }
+
+    if (student_nos && Array.isArray(student_nos) && student_nos.length > 0) {
+      const placeholders = student_nos.map(() => "?").join(",");
+      whereClauses.push(`results.student_no IN (${placeholders})`);
+      values.push(...student_nos); // Add all student numbers to the values array
+    }
+
+    const where =
+      whereClauses.length > 0
+        ? `WHERE deleted = 0 AND ${whereClauses.join(" AND ")}`
+        : "WHERE deleted = 0";
+
+    const sql = `SELECT 
+      results.* 
+      FROM results 
+      ${where} ORDER BY study_yr ASC, semester ASC`;
+
+    const [results] = await db.execute(sql, values);
+    return results;
+  } catch (error) {
+    console.log("Error fetching student marks:", error);
+    throw new GraphQLError("Error fetching student marks.");
+  }
+};
+
+export const getStdResults = async ({
+  student_no,
+  module_id,
+  student_nos,
+  start,
+  limit,
+}) => {
+  try {
+    let where = "WHERE r.deleted = 0";
+    const values = [];
+
+    // Add filters
+    if (student_no) {
+      where += " AND r.student_no = ?";
+      values.push(student_no);
+    }
+
+    if (module_id) {
+      where += " AND r.module_id = ?";
+      values.push(module_id);
+    }
+
+    if (student_nos && Array.isArray(student_nos) && student_nos.length > 0) {
+      const placeholders = student_nos.map(() => "?").join(",");
+      where += ` AND r.student_no IN (${placeholders})`;
+      values.push(...student_nos);
+    }
+
+    // Pagination
+    const pagination =
+      start !== undefined && limit !== undefined ? `LIMIT ? OFFSET ?` : "";
+    if (pagination) {
+      values.push(limit, start);
+    }
+
+    // Query
+    const sql = `
+      SELECT 
+        r.*,
+        cu.course_unit_code,
+        cu.course_unit_title,
+        cu.credit_units,
+        cu.grading_id,
+        gd.grade_letter AS grade,
+        gd.grade_point,
+        ay.acc_yr_title
+    FROM 
+        results r
+    LEFT JOIN 
+        course_units cu ON cu.id = r.module_id
+    LEFT JOIN 
+        acc_yrs ay ON r.acc_yr_id = ay.id
+    LEFT JOIN 
+        grading_system_details gd 
+        ON gd.grading_system_id = cu.grading_id 
+          AND COALESCE(r.final_mark, 0) BETWEEN gd.min_value AND gd.max_value 
+          AND gd.deleted = 0
+      ${where}
+      ORDER BY study_yr ASC, semester ASC
+      ${pagination}
+    `;
+
+    // Execute query
+    const [rows] = await db.execute(sql, values);
+    return rows;
+  } catch (error) {
+    console.error("Error fetching student marks:", error, {
+      student_no,
+      module_id,
+      student_nos,
+    });
+    throw new GraphQLError("Error fetching student marks.");
+  }
+};
+
+const studentMarksRessolvers = {
+  Query: {
+    student_marks: async (parent, args) => {
+      const result = await getStdResults({
+        student_no: args.student_no,
+        limit: args.limit,
+        start: args.start,
+      });
+
+      // console.log("results", result);
+      const resultsWithGrades = calculateGrades(result);
+      // console.log("result", resultsWithGrades);
+      return resultsWithGrades;
+    },
+    get_student_marks: async (parent, args) => {
+      const result = await getStudents({
+        std_no: args.student_no,
+      });
+
+      return result[0];
+    },
+  },
+  AcademicYear: {
+    added_user: async (parent, args) => {
+      try {
+        const user_id = parent.added_by;
+        let sql = `SELECT * FROM staff WHERE id = ?`;
+
+        let values = [user_id];
+
+        const [results, fields] = await db.execute(sql, values);
+        // console.log("results", results);
+        return results[0]; // expecting the one who added the user
+      } catch (error) {
+        // console.log("error", error);
+        throw new GraphQLError("Error fetching user", {
+          extensions: {
+            code: "UNAUTHENTICATED",
+            http: { status: 501 },
+          },
+        });
+      }
+    },
+    modified_user: async (parent, args) => {
+      try {
+        const user_id = parent.modified_by;
+        let sql = `SELECT * FROM staff WHERE id = ?`;
+
+        let values = [user_id];
+
+        const [results, fields] = await db.execute(sql, values);
+        // console.log("results", results);
+        return results[0]; // expecting the one who added the user
+      } catch (error) {
+        // console.log("error", error);
+        throw new GraphQLError("Error fetching user", {
+          extensions: {
+            code: "UNAUTHENTICATED",
+            http: { status: 501 },
+          },
+        });
+      }
+    },
+  },
+  Mutation: {
+    bulkActiveStudentsResultsUpload: async (parent, args, context) => {
+      const user_id = await context.req.user.id;
+      const BATCH_SIZE = 100; // Define a reasonable batch size
+      const payload = args.payload;
+
+      if (!Array.isArray(payload) || payload.length === 0) {
+        throw new GraphQLError("Payload must be a non-empty array.");
+      }
+
+      const connection = await db.getConnection();
+      try {
+        // Cache for already fetched or created records
+        const moduleCache = new Map();
+        const accYrCache = new Map();
+        const employeeCache = new Map();
+
+        const batches = [];
+        for (let i = 0; i < payload.length; i += BATCH_SIZE) {
+          batches.push(payload.slice(i, i + BATCH_SIZE));
+        }
+
+        for (const batch of batches) {
+          await connection.beginTransaction();
+
+          // Collect all unique values needed for batch processing
+          const moduleCodes = [...new Set(batch.map((r) => r.module_code))];
+          const accYrs = [...new Set(batch.map((r) => r.acc_yr))];
+          const uploadedBys = [...new Set(batch.map((r) => r.uploaded_by))];
+          const studentNos = [...new Set(batch.map((r) => r.student_no))];
+
+          // console.log("the batch", batch);
+          // Pre-fetch modules
+          for (const course_unit of batch) {
+            // Fetch the student details
+            // console.log("course unit", course_unit);
+            const [studentDetails] = await getStudents({
+              std_no: course_unit.student_no,
+            });
+
+            // console.log("student", studentDetails);
+
+            if (!studentDetails)
+              throw new Error(
+                `Student with student_no ${course_unit.student_no} not found`
+              );
+
+            console.log("payload", {
+              course_unit_code: course_unit.module_code,
+              course_id: studentDetails.course_id,
+              course_version_id: studentDetails.course_version_id,
+              course_unit_title: course_unit.module_title,
+            });
+
+            const [module] = await getCourseUnits({
+              course_unit_code: course_unit.module_code,
+              course_id: studentDetails.course_id,
+              course_version_id: studentDetails.course_version_id,
+              course_unit_title: course_unit.module_title,
+            });
+
+            console.log("module", module);
+
+            if (!module)
+              throw new Error(
+                `Module ${course_unit.module_code} - ${course_unit.module_title} for student ${course_unit.student_no} not found`
+              );
+
+            const cacheKey = `${course_unit.module_code}-${course_unit.module_title}`;
+            moduleCache.set(cacheKey, module);
+            // moduleCache.set(course_unit.module_code, module);
+
+            // if (!moduleCache.has(code)) {
+            //   // const _module = batch.find((r) => r.module_code === code);
+
+            //   console.log("batch", batch);
+
+            //   // if (!_module)
+            //   //   throw new Error(`No student found for module code ${code}`);
+
+            //   console.log("student details", studentDetails);
+
+            //   if (!studentDetails)
+            //     throw new Error(
+            //       `Student with student_no ${student.student_no} not found`
+            //     );
+
+            //   // console.log("payload", {
+            //   //   course_unit_code: code,
+            //   //   course_id: studentDetails.course_id,
+            //   //   course_version_id: studentDetails.course_version_id,
+            //   //   course_unit_title: _module.module_title,
+            //   // });
+
+            //   // Fetch the module using course_id from the student's details
+
+            //   // console.log("module", module);
+
+            // }
+          }
+
+          // Pre-fetch or create academic years
+          for (const accYr of accYrs) {
+            if (!accYrCache.has(accYr)) {
+              const accYrId = await fetchOrCreateRecord({
+                table: "acc_yrs",
+                field: "acc_yr_title",
+                value: accYr,
+                user_id,
+              });
+              accYrCache.set(accYr, accYrId);
+            }
+          }
+
+          // Pre-fetch employees
+          for (const name of uploadedBys) {
+            if (!employeeCache.has(name)) {
+              const nameWithoutTitle = name
+                .replace(/^(MR\.|MS\.|MRS\.\s*)/i, "")
+                .trim();
+              const nameParts = nameWithoutTitle.split(" ");
+              const surname = nameParts[0];
+              const otherNames = nameParts.slice(1).join(" ");
+
+              const [employee] = await getEmployees({
+                surname,
+                other_names: otherNames,
+              });
+              if (!employee) throw new Error(`Employee ${name} not found`);
+              employeeCache.set(name, employee);
+            }
+          }
+
+          // Pre-check for existing marks in batch
+          const existingMarks = await getStdMarks({ student_nos: studentNos });
+
+          const existingMarksSet = new Set(
+            existingMarks.map((mark) => `${mark.student_no}-${mark.module_id}`)
+          );
+
+          const resultsData = [];
+
+          for (const r of batch) {
+            const cacheKey = `${r.module_code}-${r.module_title}`;
+            const module = moduleCache.get(cacheKey);
+            // const module = moduleCache.get(r.module_code);
+            const accYrId = accYrCache.get(r.acc_yr);
+            const employee = employeeCache.get(r.uploaded_by);
+
+            const dateParts = r.datetime.split(" ");
+            const formattedDate = new Date(dateParts.slice(1).join("-"));
+
+            const key = `${r.student_no}-${module.id}`;
+            if (!existingMarksSet.has(key)) {
+              resultsData.push({
+                student_no: r.student_no,
+                module_id: module.id,
+                acc_yr_id: accYrId,
+                study_yr: r.study_yr,
+                semester: r.sem,
+                coursework: r.cswk,
+                exam: r.exam,
+                final_mark: r.final_mark,
+                booklet_number: r.booklet_number,
+                retake_count: r.no_of_retakes,
+                uploaded_by_id: employee.id,
+                migration_type: "active",
+                date_time: formattedDate,
+              });
+            }
+          }
+
+          if (resultsData.length > 0) {
+            await saveData({
+              table: "results",
+              data: resultsData,
+            });
+          }
+
+          await connection.commit();
+        }
+
+        return {
+          success: true,
+          message: `${payload.length} records processed successfully.`,
+        };
+      } catch (error) {
+        await connection.rollback();
+        throw new GraphQLError(error.message);
+      } finally {
+        if (connection) connection.release();
+      }
+    },
+  },
+};
+
+export default studentMarksRessolvers;

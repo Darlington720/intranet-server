@@ -2,7 +2,7 @@ const userTypeDefs = `#graphql
 type User {
     id: ID!,
     user_id: String!,
-    biodata: Staff!,
+    biodata: Employee!,
     email: String!,
     # pwd: String!,
     last_logged_in: [UserLogin],
@@ -12,7 +12,7 @@ type User {
     updated_by: String,
     sys_gen_pwd: Int!,
     has_set_sec_qns: Int!
-    role: UserRole
+    role: Role
     # modules: [Module]!
     }
 
@@ -37,10 +37,17 @@ type Token {
 
 type Mutation {
     addUser(user_id: String!, role_id: String!, email: String!, created_by: String!):  User
+    addNewUser(payload: NewUserInput!): ResponseMessage
     login(email: String!, pwd: String!): Token
     unlockSession(pwd: String!): Token
     change_password(password: String!, id: ID!): User
     save_user_sec_qns(id: Int!, qns: String!): User
+}
+
+input NewUserInput {
+    user_id: String!,
+    role_id: String!,
+    employee_id: String!
 }
 
 `;

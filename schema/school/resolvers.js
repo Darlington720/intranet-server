@@ -4,10 +4,15 @@ import generateUniqueID from "../../utilities/generateUniqueID.js";
 import saveData from "../../utilities/db/saveData.js";
 import { getAllCourses } from "../course/resolvers.js";
 
-const getSchools = async ({ college_id }) => {
+export const getSchools = async ({ college_id, id }) => {
   try {
     let where = "";
     let values = [];
+
+    if (id) {
+      where += " AND id = ?";
+      values.push(id);
+    }
 
     if (college_id) {
       where += " AND college_id = ?";

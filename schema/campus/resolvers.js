@@ -2,11 +2,19 @@ import { db } from "../../config/config.js";
 import { GraphQLError } from "graphql";
 import generateUniqueID from "../../utilities/generateUniqueID.js";
 
-const getAllCampuses = async () => {
+export const getCampuses = async ({ id }) => {
   try {
-    let sql = `SELECT * FROM campuses`;
+    let values = [];
+    let where = "";
 
-    const [results, fields] = await db.execute(sql);
+    if (id) {
+      where += " AND id = ?";
+      values.push(id);
+    }
+
+    let sql = `SELECT * FROM campuses WHERE deleted = 0 ${where}`;
+
+    const [results, fields] = await db.execute(sql, values);
     // console.log("results", results);
     return results;
   } catch (error) {
@@ -44,7 +52,7 @@ export const getCampus = async ({ id, campus_title }) => {
 const campusResolvers = {
   Query: {
     campuses: async () => {
-      const result = await getAllCampuses();
+      const result = await getCampuses({});
       return result;
     },
   },

@@ -148,70 +148,74 @@ const gradingResolvers = {
         added_by,
       } = args;
       // we need the current date
-      const today = new Date();
+      try {
+        // check for the id, if present, we update otherwise we create a new record
+        if (id) {
+          // update
+          try {
+            let sql = `UPDATE grading_system_details SET grading_system_id = ?, min_value = ?, max_value = ?, grade_point = ?, grade_letter = ?, added_by = ?  WHERE id = ?`;
 
-      // check for the id, if present, we update otherwise we create a new record
-      if (id) {
-        // update
-        try {
-          let sql = `UPDATE grading_system_details SET grading_system_id = ?, min_value = ?, max_value = ?, grade_point = ?, grade_letter = ?, added_by = ?  WHERE id = ?`;
+            let values = [
+              grading_id,
+              min_value,
+              max_value,
+              grade_point,
+              grade_letter,
+              added_by,
+              id,
+            ];
 
-          let values = [
-            grading_id,
-            min_value,
-            max_value,
-            grade_point,
-            grade_letter,
-            added_by,
-            id,
-          ];
+            const [results, fields] = await db.execute(sql, values);
 
-          const [results, fields] = await db.execute(sql, values);
-
-          // console.log("the results", results);
-          if (results.affectedRows == 0) {
-            // no record the provided id
-            throw new GraphQLError(`No grading with id ${id}`, {
+            // console.log("the results", results);
+            if (results.affectedRows == 0) {
+              // no record the provided id
+              throw new GraphQLError(`No grading with id ${id}`, {
+                extensions: {
+                  // code: '',
+                  http: { status: 400 },
+                },
+              });
+            }
+          } catch (error) {
+            // console.log("error", error);
+            throw new GraphQLError(error, {
               extensions: {
                 // code: '',
                 http: { status: 400 },
               },
             });
           }
-        } catch (error) {
-          // console.log("error", error);
-          throw new GraphQLError(error, {
-            extensions: {
-              // code: '',
-              http: { status: 400 },
-            },
-          });
-        }
-      } else {
-        // create new record
-        try {
-          let sql = `INSERT INTO grading_system_details(grading_system_id, min_value, max_value, grade_point, grade_letter, added_by) VALUES (?, ?, ?, ?, ?, ?)`;
+        } else {
+          // create new record
+          try {
+            let sql = `INSERT INTO grading_system_details(grading_system_id, min_value, max_value, grade_point, grade_letter, added_by) VALUES (?, ?, ?, ?, ?, ?)`;
 
-          let values = [
-            grading_id,
-            min_value,
-            max_value,
-            grade_point,
-            grade_letter,
-            added_by,
-          ];
+            let values = [
+              grading_id,
+              min_value,
+              max_value,
+              grade_point,
+              grade_letter,
+              added_by,
+            ];
 
-          const [results, fields] = await db.execute(sql, values);
-        } catch (error) {
-          console.log("error", error);
-          throw new GraphQLError("Failed to insert grading");
+            const [results, fields] = await db.execute(sql, values);
+          } catch (error) {
+            console.log("error", error);
+            throw new GraphQLError("Failed to insert grading");
+          }
         }
+
+        const result = await getGradingDetails(grading_id);
+        // console.log("the schools", results);
+
+        return result; // returning all schools
+      } catch (error) {
+        // console.log("error", error);
+        throw new GraphQLError(error.message);
       }
-
-      const result = await getGradingDetails(grading_id);
-      // console.log("the schools", results);
-
-      return result; // returning all schools
+      const today = new Date();
     },
 
     deleteGradingDetail: async (parent, args) => {

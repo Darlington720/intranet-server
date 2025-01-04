@@ -2,33 +2,39 @@ import { GraphQLError } from "graphql";
 import { tredumoDB, db, baseUrl } from "../../config/config.js";
 import { gettModulePermissions } from "../module_permission/resolvers.js";
 
-export const gettModules = async ({ id }) => {
+export const gettModules = async ({ id, role_id }) => {
   try {
     let where = "";
     let values = [];
+    let extra_join = "";
 
     if (id) {
       where = " AND id = ?";
       values.push(id);
     }
 
-    let sql = `SELECT * FROM intranent_modules WHERE deleted = 0 ${where} ORDER BY sort ASC`;
+    if (role_id) {
+      where += " AND role_modules.role_id = ?";
+      extra_join +=
+        " INNER JOIN role_modules ON role_modules.module_id = intranent_modules.id";
+      values.push(role_id);
+    }
+
+    let sql = `SELECT 
+      intranent_modules.* 
+      FROM intranent_modules
+      ${extra_join} 
+      WHERE deleted = 0 ${where} ORDER BY sort ASC`;
 
     const [results, fields] = await db.execute(sql, values);
     // console.log("results", results);
 
-    let updatedModules = [];
-
-    for (const item of results) {
-      const logo = item.logo;
-      const newItem = { ...item }; // Create a copy of the current item
-
-      if (logo) {
-        newItem.logo = `${baseUrl}${logo}`; // Update the logo property with the full URL
-      }
-
-      updatedModules.push(newItem);
-    }
+    const updatedModules = results.map((item) => {
+      return {
+        ...item,
+        logo: item.logo ? `${baseUrl}${item.logo}` : null,
+      };
+    });
 
     return updatedModules;
   } catch (error) {
@@ -46,13 +52,12 @@ const moduleResolvers = {
     },
   },
   Module: {
-    permissions: async (parent) => {
-      const permissions = await gettModulePermissions({
-        module_id: parent.id,
-      });
-
-      return permissions;
-    },
+    // permissions: async (parent) => {
+    //   const permissions = await gettModulePermissions({
+    //     module_id: parent.id,
+    //   });
+    //   return permissions;
+    // },
   },
 };
 

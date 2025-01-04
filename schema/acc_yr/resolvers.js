@@ -39,7 +39,8 @@ const AccYrResolvers = {
     added_user: async (parent, args) => {
       try {
         const user_id = parent.added_by;
-        let sql = `SELECT * FROM staff WHERE id = ?`;
+
+        let sql = `SELECT * FROM employees WHERE id = ?`;
 
         let values = [user_id];
 

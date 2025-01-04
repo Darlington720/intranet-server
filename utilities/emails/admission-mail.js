@@ -26,8 +26,8 @@ async function sendEmail({ to, subject, message }) {
 
     console.log("Message sent: %s", info.messageId);
   } catch (error) {
-    // throw new GraphQLError("SERVER_ERROR");
-    console.log("server error: Failed to send emails");
+    throw new GraphQLError("server error: Failed to send emails");
+    // console.log("server error: Failed to send emails");
   }
 }
 

@@ -1,6 +1,5 @@
 import knex from "knex";
 import mysql from "mysql2/promise";
-import { Connector } from "@google-cloud/cloud-sql-connector";
 
 // const connector = new Connector();
 // const clientOpts = await connector.getOptions({
@@ -8,10 +7,11 @@ import { Connector } from "@google-cloud/cloud-sql-connector";
 //   ipType: "PUBLIC",
 // });
 
-const baseUrl = "http://localhost:2222/module_logos/";
 const port = 2323;
 const host = "0.0.0.0";
 const PRIVATE_KEY = "tredumo#123";
+const PORTAL_PRIVATE_KEY = "stdPortal@tredumo123#";
+const baseUrl = `http://localhost:2222/module_logos/`;
 
 const database = knex({
   client: "mysql",
@@ -62,7 +62,7 @@ const _db = knex({
 //   database: "intranet",
 // });
 
-let db;
+// let db;
 
 // async function connectToDatabase() {
 //   if (!db || db.state === "disconnected") {
@@ -77,12 +77,15 @@ let db;
 
 // await connectToDatabase();
 
-const pool = await mysql.createPool({
+const db = await mysql.createPool({
   host: "localhost",
   user: "root",
   database: "intranet",
+  connectionLimit: 10,
+  waitForConnections: true,
+  enableKeepAlive: true,
 });
-db = await pool.getConnection();
+// db = await pool.getConnection();
 
 export {
   baseUrl,
@@ -94,4 +97,5 @@ export {
   db,
   host,
   PRIVATE_KEY,
+  PORTAL_PRIVATE_KEY,
 };

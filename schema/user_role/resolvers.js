@@ -1,11 +1,18 @@
 import { db } from "../../config/config.js";
 import { GraphQLError } from "graphql";
 
-const getAllUserRoles = async () => {
+export const getUserRoles = async ({ id }) => {
   try {
+    let values = [];
+    let where = "";
+
+    if (id) {
+      where += " AND r.id = ?";
+      values.push(id);
+    }
     let sql = `SELECT r.* FROM user_roles AS r`;
 
-    const [results, fields] = await db.execute(sql);
+    const [results] = await db.execute(sql);
     // console.log("results", results);
     return results;
   } catch (error) {
@@ -17,11 +24,11 @@ const getAllUserRoles = async () => {
 const userRoleResolvers = {
   Query: {
     user_roles: async (parent, args) => {
-      const result = await getAllUserRoles();
+      const result = await getUserRoles({});
       return result;
     },
     roles: async (parent, args) => {
-      const result = await getAllUserRoles();
+      const result = await getUserRoles({});
       return result;
     },
   },

@@ -6,13 +6,45 @@ import { getCourse } from "../course/resolvers.js";
 import softDelete from "../../utilities/db/softDelete.js";
 import { getAllGrading } from "../grading/resolvers.js";
 
-const getCourseUnits = async ({ course_version_id }) => {
+export const getCourseUnits = async ({
+  course_version_id,
+  course_unit_code,
+  course_id,
+  course_unit_title,
+}) => {
   try {
-    let sql = `SELECT * FROM course_units WHERE course_version_id = ? AND deleted = 0`;
-    let values = [course_version_id];
+    let where = "";
+    let values = [];
+
+    if (course_version_id) {
+      where += " AND course_version_id = ?";
+      values.push(course_version_id);
+    }
+
+    if (course_unit_code) {
+      where += " AND course_unit_code = ?";
+      values.push(course_unit_code);
+    }
+
+    if (course_id) {
+      where += " AND course_id = ?";
+      values.push(course_id);
+    }
+
+    if (course_version_id) {
+      where += " AND course_version_id = ?";
+      values.push(course_version_id);
+    }
+
+    if (course_unit_title) {
+      where += " AND course_unit_title = ?";
+      values.push(course_unit_title);
+    }
+
+    let sql = `SELECT * FROM course_units WHERE deleted = 0 ${where}`;
 
     const [results, fields] = await db.execute(sql, values);
-    console.log("results", results);
+    // console.log("results", results);
     return results;
   } catch (error) {
     console.log("error", error);

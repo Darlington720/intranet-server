@@ -132,6 +132,8 @@ const StudentRegisteredCourseUnitRessolvers = {
       const today = new Date();
       let retake_count = 0;
       let invoice_no = null;
+      let connection;
+      connection = await db.getConnection();
 
       try {
         const user_id = context.req.user.id;
@@ -188,7 +190,10 @@ const StudentRegisteredCourseUnitRessolvers = {
           );
         }
 
-        db.beginTransaction();
+        // db.beginTransaction();
+
+        // Start the transaction
+        await connection.beginTransaction();
         // now lets cater for retakes and missed papers -> invoices have to be generated in enrollment
         if (status == "retake" || status == "missed") {
           // console.log("args", args.payload);
@@ -247,15 +252,20 @@ const StudentRegisteredCourseUnitRessolvers = {
           id: null,
         });
 
-        db.commit();
+        await connection.commit();
 
         return {
           success: "true",
           message: "Module Registered Successfully",
         };
       } catch (error) {
-        db.rollback();
+        connection.rollback();
         throw new GraphQLError(error.message);
+      } finally {
+        if (connection) {
+          // Release the connection back to the pool
+          connection.release();
+        }
       }
     },
     remove_module: async (parent, args) => {

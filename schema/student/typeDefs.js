@@ -40,6 +40,7 @@ const studentTypeDefs = `#graphql
         enrollment_history: [StudentEnrollment]!
         registration_history: [StudentRegistration]!
         invoices: [Invoice]!
+        student_marks: [StudentMark]
         # registration_status
         # transactions
         # has_completed
@@ -123,12 +124,11 @@ const studentTypeDefs = `#graphql
         total_due: String
     }
 
-
-
     type Query {
         students(campus: String, intake: String, acc_yr: String, course_version: String, sic: Int): [Student]!
         student_autocomplete(query: String!): [Student]!
         loadStudentFile(student_id: String, student_no: String): Student
+        my_details: Student
         # currentEnrollmentInfo(student_id: String, student_no: String, intake_id: String!): [StudentEnrollment]
     }
 
@@ -163,6 +163,40 @@ const studentTypeDefs = `#graphql
         ): ResponseMessage
         saveNewStudent(payload: newStdInput): ResponseMessage
         uploadStudents(payload: [uploadStdInput]!): ResponseMessage
+        saveStudentData(payload: saveStdInput): ResponseMessage
+        studentPortalLogin(user_id: String!, password: String!): Token
+        changeStdPwd(password: String!): ResponseMessage
+        saveStdCredentials(email: String!, phone_no: String!): ResponseMessage
+    }
+
+    input saveStdInput {
+        student_no: String!,
+        applicant_id: String!,
+        reg_no: String,
+        surname: String,
+        other_names: String,
+        gender: String,
+        district: String,
+        email: String,
+        phone_no: String,
+        entry_acc_yr: String,
+        entry_study_yr: Int,
+        nationality: String,
+        sponsorship: Int,
+        guardian_name: String,
+        guardian_contact: String,
+        billing_nationality: String,
+        hall_of_attachment: String,
+        hall_of_residence: String,
+        course_id: String,
+        course_version_id: String,
+        intake_id: String,
+        campus_id: String,
+        study_yr: Int,
+        current_sem: Int,
+        residence_status: Int,
+        study_time_id: String,
+        completed: Int,
     }
 
     input newStdInput {

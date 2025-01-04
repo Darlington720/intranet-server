@@ -2,19 +2,29 @@ import { db } from "../../config/config.js";
 import { GraphQLError } from "graphql";
 import generateUniqueID from "../../utilities/generateUniqueID.js";
 
+export const getColleges = async ({ id }) => {
+  try {
+    let values = [];
+    let where = "";
+
+    if (id) {
+      where += " AND id = ?";
+      values.push(id);
+    }
+    let sql = `SELECT * FROM colleges WHERE deleted = 0 ${where}`;
+
+    const [results] = await db.execute(sql, values);
+    return results;
+  } catch (error) {
+    throw new GraphQLError("Error fetching colleges", error.message);
+  }
+};
+
 const collegeResolvers = {
   Query: {
     colleges: async () => {
-      try {
-        let sql = `SELECT * FROM colleges`;
-
-        const [results, fields] = await db.execute(sql);
-        // console.log("results", results);
-        return results;
-      } catch (error) {
-        console.log("error", error);
-        throw new GraphQLError("Error fetching modules");
-      }
+      const results = await getColleges({});
+      return results;
     },
   },
   College: {

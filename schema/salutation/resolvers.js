@@ -1,23 +1,41 @@
 import { db } from "../../config/config.js";
 import { GraphQLError } from "graphql";
 
-const getAllSalutations = async () => {
+export const getAllSalutations = async ({
+  salutation_code,
+  salutation_description,
+}) => {
   try {
-    let sql = `SELECT * FROM salutations`;
+    let conditions = ["deleted = 0"];
+    let values = [];
 
-    const [results, fields] = await db.execute(sql);
-    // console.log("results", results);
+    if (salutation_code) {
+      conditions.push("salutation_code = ?");
+      values.push(salutation_code);
+    }
+
+    if (salutation_description) {
+      conditions.push("salutation_description LIKE ?");
+      values.push(`%${salutation_description}%`); // Add wildcards for partial match
+    }
+
+    let whereClause = conditions.length
+      ? `WHERE ${conditions.join(" AND ")}`
+      : "";
+    let sql = `SELECT * FROM salutations ${whereClause}`;
+
+    const [results, fields] = await db.execute(sql, values);
     return results;
   } catch (error) {
-    console.log("error", error);
-    throw new GraphQLError("Error fetching nationalities " + error.message);
+    console.error("Error fetching salutations:", error);
+    throw new GraphQLError("Error fetching salutations: " + error.message);
   }
 };
 
 const salutationResolvers = {
   Query: {
     salutations: async () => {
-      const result = await getAllSalutations();
+      const result = await getAllSalutations({});
       return result;
     },
   },

@@ -39,7 +39,30 @@ const app = express();
 const httpServer = http.createServer(app);
 
 app.use(express.static("public"));
-// app.use(cors());
+
+let allowedOrigins = [
+  "http://localhost:3000",
+  "http://localhost:5000",
+  "http://localhost:2323",
+  "http://localhost:2222",
+  "http://localhost:5173",
+];
+
+app.use(
+  cors({
+    origin: function (origin, callback) {
+      // allow requests with no origin (like mobile apps or curl requests)
+      if (!origin) return callback(null, true);
+      if (allowedOrigins.indexOf(origin) === -1) {
+        let msg =
+          "The CORS policy for this site does not " +
+          "allow access from the specified Origin.";
+        return callback(new Error(msg), false);
+      }
+      return callback(null, true);
+    },
+  })
+);
 
 const getActiveUniversitySession = async () => {
   let sql = "SELECT * FROM university_sessions ORDER BY us_id DESC LIMIT 1";
@@ -1001,6 +1024,15 @@ const getActiveUniversitySession = async () => {
 //   },
 // };
 
+app.get("/templates/appraisal_template", (req, res) => {
+  // Serve your PDF or other file
+  const filePath = path.resolve(
+    __dirname,
+    "public/templates/appraisal_template.pdf"
+  );
+  res.sendFile(filePath);
+});
+
 app.get("/api/student_image/:stdno", (req, res) => {
   const { stdno } = req.params;
   // console.log("stdno", stdno);
@@ -1807,7 +1839,19 @@ const server = new ApolloServer({
 await server.start();
 app.use(
   "/",
-  cors(),
+  cors({
+    origin: function (origin, callback) {
+      // allow requests with no origin (like mobile apps or curl requests)
+      if (!origin) return callback(null, true);
+      if (allowedOrigins.indexOf(origin) === -1) {
+        let msg =
+          "The CORS policy for this site does not " +
+          "allow access from the specified Origin.";
+        return callback(new Error(msg), false);
+      }
+      return callback(null, true);
+    },
+  }),
   bodyParser.json({ limit: "50mb" }),
   graphqlUploadExpress(),
 
@@ -1816,9 +1860,21 @@ app.use(
     context: async ({ req, res }) => {
       const operationName = req.body.operationName;
 
-      // console.log("operation name", operationName);
-      if (operationName !== "Login" && operationName !== "IntrospectionQuery") {
-        await authenticateUser({ req });
+      // Define operations that do not require authentication
+      const exemptOperations = new Set([
+        "Login",
+        "IntrospectionQuery",
+        "studentPortalLogin",
+      ]);
+
+      // Authenticate user if the operation is not exempt
+      if (!exemptOperations.has(operationName)) {
+        try {
+          await authenticateUser({ req });
+        } catch (error) {
+          console.error("Authentication Error:", error);
+          throw new Error("Authentication failed. Please login to continue.");
+        }
       }
 
       return { req, res };

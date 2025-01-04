@@ -6,6 +6,7 @@ const saveDataWithOutDuplicates = async ({
   id,
   data,
   uniqueField = null,
+  connection = db,
 }) => {
   try {
     // console.log("The data:", data);
@@ -21,7 +22,7 @@ const saveDataWithOutDuplicates = async ({
       const promises = data.map(async (row) => {
         if (uniqueField) {
           // Check if record exists
-          const [existing] = await db.execute(
+          const [existing] = await connection.execute(
             `SELECT id FROM ${table} WHERE ${uniqueField} = ?`,
             [row[uniqueField]]
           );
@@ -31,14 +32,14 @@ const saveDataWithOutDuplicates = async ({
             let updateSql = `UPDATE ${table} SET ${setClause} WHERE id = ?`;
             let values = Object.values(row);
             values.push(existing[0].id);
-            await db.execute(updateSql, values);
+            await connection.execute(updateSql, values);
             return existing[0].id;
           }
         }
 
         // Insert if not exists
         let values = Object.values(row);
-        const [result] = await db.execute(sql, values);
+        const [result] = await connection.execute(sql, values);
         return result.insertId;
       });
 
@@ -55,14 +56,14 @@ const saveDataWithOutDuplicates = async ({
       let sql = `UPDATE ${table} SET ${setClause} WHERE id = ?`;
       values.push(id); // Append the ID for the WHERE clause
 
-      const [results] = await db.execute(sql, values);
+      const [results] = await connection.execute(sql, values);
       if (!results.affectedRows) {
         return 0;
       }
       return id;
     } else if (uniqueField) {
       // Check if record exists
-      const [existing] = await db.execute(
+      const [existing] = await connection.execute(
         `SELECT id FROM ${table} WHERE ${uniqueField} = ?`,
         [data[uniqueField]]
       );
@@ -71,7 +72,7 @@ const saveDataWithOutDuplicates = async ({
         let setClause = columns.map((col) => `${col} = ?`).join(", ");
         let sql = `UPDATE ${table} SET ${setClause} WHERE id = ?`;
         values.push(existing[0].id);
-        await db.execute(sql, values);
+        await connection.execute(sql, values);
         return existing[0].id;
       }
     }
@@ -82,7 +83,7 @@ const saveDataWithOutDuplicates = async ({
       ", "
     )}) VALUES (${placeholders})`;
 
-    const [result] = await db.execute(sql, values);
+    const [result] = await connection.execute(sql, values);
     return result.insertId;
   } catch (error) {
     console.error(error.message);

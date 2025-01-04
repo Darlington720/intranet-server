@@ -46,10 +46,12 @@ const saveData = async ({ table, id, data, idColumn = "id" }) => {
 
       const promises = data.map((row) => {
         let values = Object.values(row);
+        console.log("row", row);
         return db.execute(sql, values);
       });
 
       const results = await Promise.all(promises);
+
       return results.map((result) => result[0].insertId); // Returning array of insertIds
     }
 
@@ -68,7 +70,10 @@ const saveData = async ({ table, id, data, idColumn = "id" }) => {
       const [results] = await db.execute(sql, values);
 
       if (!results.affectedRows) {
-        return 0;
+        if (!results.affectedRows) {
+          //   return 0; // No rows were affected, possibly invalid ID
+          throw new GraphQLError("No data that matched the provided id!");
+        }
       }
       return id;
     } else {
@@ -79,10 +84,11 @@ const saveData = async ({ table, id, data, idColumn = "id" }) => {
       )}) VALUES (${placeholders})`;
 
       const [results, fields] = await db.execute(sql, values);
+
       return results.insertId;
     }
   } catch (error) {
-    // console.log("eroor", error.message);
+    // console.log("eroor save", error.message);
     throw new GraphQLError(error.message);
   }
 };

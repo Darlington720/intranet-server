@@ -19,7 +19,12 @@ const fetchOrCreateRecord = async ({ table, field, value, user_id }) => {
       added_on: new Date(),
     };
 
-    if (table == "acc_yrs" || table == "study_times") {
+    if (
+      table == "acc_yrs" ||
+      table == "study_times" ||
+      table == "intakes" ||
+      table == "campuses"
+    ) {
       const unique_id = generateUniqueID();
       newRecord = {
         id: unique_id,
