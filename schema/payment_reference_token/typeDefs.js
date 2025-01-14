@@ -20,11 +20,11 @@ const paymentReferenceTokenTypeDefs = `#graphql
     type Mutation {
         generatePRT(
             id: ID, 
-            student_no:  String!, 
+            student_no:  String, 
             amount: Int!,
             type: String!,  # prepayment_ref or invoice_ref
             invoices: String
-        generated_by: String!): PaymentReferenceToken
+        ): PaymentReferenceToken
     }
 `;
 

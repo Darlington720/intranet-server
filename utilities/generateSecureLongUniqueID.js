@@ -6,7 +6,7 @@ function generateUniqueID() {
   const thirdUUID = uuidv4(); // Generate third UUID
   const fourthUUID = uuidv4(); // Generate fourth UUID
 
-  return `${firstUUID}-${secondUUID}-${thirdUUID}-${fourthUUID}`;
+  return `${firstUUID}-${secondUUID}`;
 }
 
 // Example usage:

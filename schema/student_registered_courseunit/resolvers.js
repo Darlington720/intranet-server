@@ -93,6 +93,18 @@ const StudentRegisteredCourseUnitRessolvers = {
 
       return results;
     },
+    student_selected_modules: async (_, args, context) => {
+      const student_no = context.req.user.student_no;
+      const { study_year, sem } = args;
+
+      const results = await getStudentRegisteredModules({
+        student_no,
+        study_yr: study_year,
+        sem,
+      });
+
+      return results;
+    },
   },
   StudentRegisteredCourseUnit: {
     enrolled_user: async (parent, args) => {
@@ -224,6 +236,152 @@ const StudentRegisteredCourseUnitRessolvers = {
           invoice_no,
           enrolled_on: today,
           enrolled_by: user_id,
+        };
+
+        if (status == "retake") {
+          // check if the same is enrolled with retake
+          const existing = await getStudentRegisteredModules({
+            student_no,
+            course_unit_code,
+            status: "retake",
+          });
+
+          if (existing.length == 0) {
+            retake_count = 1;
+          } else {
+            // console.log("retake", existing);
+            retake_count = existing[existing.length - 1].retake_count + 1;
+          }
+
+          data = { ...data, retake_count };
+        }
+
+        // console.log("the data", data);
+
+        await saveData({
+          table: "student_registered_modules",
+          data,
+          id: null,
+        });
+
+        await connection.commit();
+
+        return {
+          success: "true",
+          message: "Module Registered Successfully",
+        };
+      } catch (error) {
+        connection.rollback();
+        throw new GraphQLError(error.message);
+      } finally {
+        if (connection) {
+          // Release the connection back to the pool
+          connection.release();
+        }
+      }
+    },
+    std_module_registration: async (parent, args, context) => {
+      const { course_unit_code, study_yr, sem, status } = args.payload;
+
+      const MAX_NUMBER_OF_NORMAL_PAPERS = 6;
+      const MAX_NUMBER_OF_PAPERS = 8;
+
+      const today = new Date();
+      let retake_count = 0;
+      let invoice_no = null;
+      let connection;
+      connection = await db.getConnection();
+
+      try {
+        const student_no = context.req.user.student_no;
+
+        // no duplication is allowed, lets first check if the module is already registered
+        const results = await getStudentRegisteredModules({
+          student_no,
+          study_yr,
+          sem,
+          course_unit_code,
+        });
+
+        if (results.length > 0) {
+          throw new GraphQLError("Module is already registered");
+        }
+
+        // check if the course unit is elligible to be done a normal paper
+        if (status == "normal") {
+          const results3 = await getStudentRegisteredModules({
+            student_no,
+            course_unit_code,
+            status,
+          });
+
+          if (results3.length > 0) {
+            throw new GraphQLError(
+              `You can't do this course unit as a normal paper beccause it is already enrolled as a normal paper in Year: ${results3[0].study_year}, Semester: ${results3[0].semester}`
+            );
+          }
+        }
+
+        // check if the student has reached the maximum number of normal papers
+        const results2 = await getStudentRegisteredModules({
+          student_no,
+          study_yr,
+          sem,
+        });
+
+        const normalPapers = results2.filter(
+          (enrollment) => enrollment.status == "normal"
+        );
+
+        if (status == "normal") {
+          if (normalPapers.length >= MAX_NUMBER_OF_NORMAL_PAPERS) {
+            throw new GraphQLError(
+              "Maximum of NORMAL papers to be done in a semester is reached"
+            );
+          }
+        }
+
+        if (results2.length >= MAX_NUMBER_OF_PAPERS) {
+          throw new GraphQLError(
+            "Maximum of papers to be done in a semester is reached"
+          );
+        }
+
+        // db.beginTransaction();
+
+        // Start the transaction
+        await connection.beginTransaction();
+        // now lets cater for retakes and missed papers -> invoices have to be generated in enrollment
+        if (status == "retake" || status == "missed") {
+          // console.log("args", args.payload);
+
+          const student = await getStudents({
+            std_no: student_no,
+            get_course_details: true,
+          });
+
+          invoice_no = await createMissedAndRetakeInvoice({
+            student_details: student,
+            student_no,
+            academic_year: args.payload.acc_yr_id,
+            study_year: study_yr,
+            semester: sem,
+            invoice_category: status,
+            invoice_type: "MANDATORY",
+            course_unit_code,
+          });
+        }
+
+        let data = {
+          student_no,
+          course_unit_code,
+          status,
+          study_year: study_yr,
+          semester: sem,
+          invoice_no,
+          enrolled_on: today,
+          enrolled_by: student_no,
+          enrolled_by_type: "student",
         };
 
         if (status == "retake") {

@@ -69,6 +69,7 @@ const studentTypeDefs = `#graphql
         progress: String!,
         registration_status: String
         account_balance: Int
+        enrollment_types: [EnrollmentStatus]
     }
 
     type StudentReport {
@@ -129,6 +130,7 @@ const studentTypeDefs = `#graphql
         student_autocomplete(query: String!): [Student]!
         loadStudentFile(student_id: String, student_no: String): Student
         my_details: Student
+        my_results: Student
         # currentEnrollmentInfo(student_id: String, student_no: String, intake_id: String!): [StudentEnrollment]
     }
 
@@ -163,10 +165,19 @@ const studentTypeDefs = `#graphql
         ): ResponseMessage
         saveNewStudent(payload: newStdInput): ResponseMessage
         uploadStudents(payload: [uploadStdInput]!): ResponseMessage
+        uploadStudentsV2(payload: [uploadStdV2]!): ResponseMessage
         saveStudentData(payload: saveStdInput): ResponseMessage
         studentPortalLogin(user_id: String!, password: String!): Token
         changeStdPwd(password: String!): ResponseMessage
         saveStdCredentials(email: String!, phone_no: String!): ResponseMessage
+        studentSemesterEnrollment(payload: studentSemEnrollmentInput!): ResponseMessage
+    }
+
+    input studentSemEnrollmentInput {
+        acc_yr_id: String!,
+        study_yr: String!,
+        sem: String!,
+        enrollment_status_id: String,
     }
 
     input saveStdInput {
@@ -281,6 +292,42 @@ const studentTypeDefs = `#graphql
         tuition_paid: String,
         card_printed: String,
         discount_codes: String,
+    }
+
+    input uploadStdV2 {
+        religion: String,
+        stdno: String,
+        sdate: String,
+        admitted_date: String,
+        joined_date: String,
+        admissions_form_no: String,
+        regno: String,
+        surname: String,
+        other_names: String,
+        sex: String,
+        email: String,
+        telno: String,
+        entry_ac_yr: String,
+        entry_study_yr: String,
+        nationality: String,
+        billing_nationality: String,
+        home_district: String,
+        progcode: String,
+        prog_alias: String,
+        progversion: String,
+        intake: String,
+        campus: String,
+        study_yr: String,
+        current_sem: String,
+        std_status: String,
+        study_time: String,
+        sponsorship: String,
+        sponsorship_category: String,
+        grading_id: String,
+        residence_status: String,
+        archived: String,
+        completed: String,
+        dob_sdate: String,         
     }
 `;
 

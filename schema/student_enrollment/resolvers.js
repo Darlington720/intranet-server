@@ -50,6 +50,7 @@ export const getStudentEnrollment = async ({
   sem,
   enrollment_status_id,
   exclude_dead_semesters,
+  limit,
 }) => {
   try {
     let where = "";
@@ -90,10 +91,15 @@ export const getStudentEnrollment = async ({
       values.push(6);
     }
 
+    const pagination = limit !== undefined ? `LIMIT ?` : "";
+    if (pagination) {
+      values.push(limit);
+    }
+
     let sql = `SELECT students_enrollment.*, acc_yrs.acc_yr_title
     FROM students_enrollment 
     LEFT JOIN acc_yrs ON acc_yrs.id = students_enrollment.acc_yr
-    WHERE students_enrollment.deleted = 0 ${where} ORDER BY students_enrollment.study_yr DESC,students_enrollment.sem DESC, students_enrollment.datetime DESC `;
+    WHERE students_enrollment.deleted = 0 ${where} ORDER BY students_enrollment.study_yr DESC, students_enrollment.datetime DESC, acc_yrs.acc_yr_title DESC, students_enrollment.sem ASC ${pagination}`;
 
     const [results, fields] = await db.execute(sql, values);
     // console.log("results", results);
@@ -243,7 +249,8 @@ const studentEnrollmentResolvers = {
         enrolled_by,
       } = args;
 
-      await db.beginTransaction();
+      const connection = await db.getConnection();
+      await connection.beginTransaction();
       try {
         // get student details to be used to generate invoices
         const student = await getStudents({
@@ -464,15 +471,19 @@ const studentEnrollmentResolvers = {
           }
         }
 
-        await db.commit();
+        await connection.commit();
 
         return {
           success: "true",
           message: "Student Enrolled Successfully",
         };
       } catch (error) {
-        await db.rollback();
+        await connection.rollback();
         throw new GraphQLError(error.message);
+      } finally {
+        if (connection) {
+          await connection.release();
+        }
       }
     },
     savePastEnrollment: async (parent, args) => {

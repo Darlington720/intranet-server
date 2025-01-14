@@ -2,19 +2,26 @@ import { db } from "../../config/config.js";
 import { GraphQLError } from "graphql";
 import generateUniqueID from "../../utilities/generateUniqueID.js";
 
-export const getEnrollmentTypes = async ({ id }) => {
+export const getEnrollmentTypes = async ({ id, enrollent_codes }) => {
   let where = "";
   let values = [];
+
   try {
     if (id) {
       where += " AND enrollment_status.id = ?";
       values.push(id);
     }
 
+    if (enrollent_codes && Array.isArray(enrollent_codes)) {
+      where +=
+        " AND code IN (" + enrollent_codes.map(() => "?").join(", ") + ")";
+      values.push(...enrollent_codes); // Spread the array as separate values
+    }
+
     let sql = `SELECT * FROM enrollment_status WHERE deleted = 0 ${where} ORDER BY id ASC`;
 
-    const [results, fields] = await db.execute(sql, values);
-    // console.log("results", results);
+    const [results] = await db.execute(sql, values);
+
     return results;
   } catch (error) {
     console.log("error", error);

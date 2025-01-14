@@ -31,6 +31,8 @@ export const getStudentRegistrationHistory = async ({
   study_yr,
   sem,
   acc_yr,
+  limit,
+  enrollment_token,
 }) => {
   try {
     let where = "";
@@ -56,10 +58,20 @@ export const getStudentRegistrationHistory = async ({
       values.push(acc_yr);
     }
 
+    if (enrollment_token) {
+      where += " AND students_registration.enrollment_token = ?";
+      values.push(enrollment_token);
+    }
+
+    const pagination = limit !== undefined ? `LIMIT ?` : "";
+    if (pagination) {
+      values.push(limit);
+    }
+
     let sql = `SELECT students_registration.*, acc_yrs.acc_yr_title
     FROM students_registration 
     LEFT JOIN acc_yrs ON acc_yrs.id = students_registration.acc_yr_id
-    WHERE students_registration.deleted = 0 ${where} ORDER BY students_registration.study_yr DESC,students_registration.sem DESC, students_registration.date DESC `;
+    WHERE students_registration.deleted = 0 ${where} ORDER BY students_registration.study_yr DESC,students_registration.sem DESC, students_registration.date DESC ${pagination}`;
 
     const [results, fields] = await db.execute(sql, values);
     // console.log("results", results);

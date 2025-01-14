@@ -46,6 +46,7 @@ let allowedOrigins = [
   "http://localhost:2323",
   "http://localhost:2222",
   "http://localhost:5173",
+  "https://intranet-j5rr.vercel.app",
 ];
 
 app.use(
@@ -1867,13 +1868,32 @@ app.use(
         "studentPortalLogin",
       ]);
 
+      const studentOperations = new Set([
+        "My_details",
+        "generatePRT",
+        "getCourseUnits",
+        "ChangeStdPwd",
+        "SaveStdCredentials",
+        "std_module_registration",
+        "getStudentSelectedModules",
+        "removeModule",
+        "myResults",
+        "studentSemesterEnrollment",
+      ]);
+
       // Authenticate user if the operation is not exempt
       if (!exemptOperations.has(operationName)) {
         try {
+          const portalType = req.headers["x-portal-type"];
+          if (portalType && !studentOperations.has(operationName)) {
+            throw new GraphQLError("User is not supported for this operation");
+          }
           await authenticateUser({ req });
         } catch (error) {
-          console.error("Authentication Error:", error);
-          throw new Error("Authentication failed. Please login to continue.");
+          // console.error("Authentication Error:", error);
+          throw new GraphQLError(error.message, {
+            extensions: { code: "UNAUTHENTICATED" },
+          });
         }
       }
 

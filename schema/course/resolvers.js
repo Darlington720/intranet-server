@@ -85,7 +85,12 @@ const courseLoader = new DataLoader(async (courseIds) => {
   return courseMap;
 });
 
-export const getCourse = async ({ course_code, course_version }) => {
+export const getCourse = async ({
+  course_id,
+  course_version_id,
+  course_code,
+  course_version,
+}) => {
   try {
     let values = [];
     let where = "";
@@ -99,6 +104,17 @@ export const getCourse = async ({ course_code, course_version }) => {
       where += " AND course_versions.version_title = ?";
       values.push(course_version);
     }
+
+    if (course_id) {
+      where += " AND courses.id = ?";
+      values.push(course_id);
+    }
+
+    if (course_version_id) {
+      where += " AND course_versions.id = ?";
+      values.push(course_version_id);
+    }
+
     let sql = `
     SELECT 
       courses.*,
@@ -122,12 +138,33 @@ export const getCourse = async ({ course_code, course_version }) => {
   }
 };
 
-const getCourseVersionDetails = async (course_version_id) => {
+export const getCourseVersionDetails = async ({
+  course_version_id,
+  course_version,
+  course_id,
+}) => {
   try {
-    let sql = `SELECT * FROM course_versions WHERE id = ? AND deleted = 0`;
-    let values = [course_version_id];
+    let values = [];
+    let where = "";
 
-    const [results, fields] = await db.execute(sql, values);
+    if (course_version_id) {
+      where += " AND course_versions.id = ?";
+      values.push(course_version_id);
+    }
+
+    if (course_id) {
+      where += " AND course_versions.course_id = ?";
+      values.push(course_id);
+    }
+
+    if (course_version) {
+      where += " AND course_versions.version_title = ?";
+      values.push(course_version);
+    }
+
+    let sql = `SELECT * FROM course_versions WHERE deleted = 0 ${where}`;
+
+    const [results] = await db.execute(sql, values);
     // console.log("results", results);
     return results[0]; // returning the course
   } catch (error) {
@@ -188,7 +225,7 @@ const courseResolvers = {
 
     course_version_details: async (_, args) => {
       const course_version_id = args.course_version_id;
-      const result = await getCourseVersionDetails(course_version_id);
+      const result = await getCourseVersionDetails({ course_version_id });
       return result;
     },
 
@@ -623,9 +660,11 @@ const courseResolvers = {
         }
       }
 
-      const result = await getCourseVersionDetails(
-        course_version_id ? course_version_id : uniqueVersionID
-      );
+      const result = await getCourseVersionDetails({
+        course_version_id: course_version_id
+          ? course_version_id
+          : uniqueVersionID,
+      });
 
       return result; // returning the saved course
     },
@@ -702,9 +741,9 @@ const courseResolvers = {
         }
       }
 
-      const result = await getCourseVersionDetails(
-        id ? id : uniqueCourseVersionID
-      );
+      const result = await getCourseVersionDetails({
+        course_version_id: id ? id : uniqueCourseVersionID,
+      });
       // console.log("the course", result);
 
       return result; // returning the saved course

@@ -1,6 +1,7 @@
 import { db } from "../../config/config.js";
 import saveData from "../db/saveData.js";
 import generateUniqueID from "../generateUniqueID.js";
+import {GraphQLError} from "graphql"
 
 const fetchOrCreateRecord = async ({ table, field, value, user_id }) => {
   try {
@@ -43,7 +44,7 @@ const fetchOrCreateRecord = async ({ table, field, value, user_id }) => {
     return save_id;
   } catch (error) {
     console.log("error", error);
-    throw new GraphQLError("Error fetching campuses");
+    throw new GraphQLError(error.message);
   }
 };
 

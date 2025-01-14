@@ -18,7 +18,13 @@ const getAcademicSchedules = async () => {
   }
 };
 
-export const getRunningSemesters = async ({ intake_id, id, acc_yr, sem }) => {
+export const getRunningSemesters = async ({
+  intake_id,
+  id,
+  acc_yr,
+  sem,
+  limit,
+}) => {
   try {
     let values = [];
     let where = "";
@@ -48,10 +54,15 @@ export const getRunningSemesters = async ({ intake_id, id, acc_yr, sem }) => {
       values.push(sem);
     }
 
+    const pagination = limit !== undefined ? `LIMIT ${limit}` : "";
+    // if (pagination) {
+    //   values.push(1);
+    // }
+
     let sql = `SELECT academic_schedule.*, acc_yrs.acc_yr_title
       FROM academic_schedule
       LEFT JOIN acc_yrs ON acc_yrs.id = academic_schedule.acc_yr_id   
-      WHERE CURRENT_DATE BETWEEN start_date AND end_date AND academic_schedule.deleted = 0 ${where} ORDER BY start_date DESC;`;
+      WHERE CURRENT_DATE BETWEEN start_date AND end_date AND academic_schedule.deleted = 0 ${where} ORDER BY start_date DESC ${pagination};`;
 
     const [results, fields] = await db.execute(sql, values);
 

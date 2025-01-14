@@ -9,6 +9,7 @@ import sendEmail from "../../utilities/emails/admission-mail.js";
 import saveDataWithOutDuplicates from "../../utilities/db/saveDataWithOutDuplicates.js";
 import { getUserRoles } from "../user_role/resolvers.js";
 import { getRoles } from "../role/resolvers.js";
+import generateUniqueID from "../../utilities/generateUniqueID.js";
 
 const getUsers = async () => {
   try {
@@ -52,6 +53,83 @@ const getUser = async ({ id, user_id }) => {
   } catch (error) {
     throw new GraphQLError(error.message);
   }
+};
+
+const loginUser = async ({ email, password, user_id, context }) => {
+  let values = [];
+  let where = "";
+
+  if (email) {
+    where += " AND email = ?";
+    values.push(email);
+  }
+
+  if (user_id) {
+    where += " AND user_id = ?";
+    values.push(user_id);
+  }
+
+  let sql = `SELECT * FROM management_users WHERE deleted = 0 ${where}`;
+
+  let [results] = await db.execute(sql, values);
+
+  // console.log("user", results);
+
+  const user = results[0];
+
+  if (!user) throw new GraphQLError("Invalid Email or Password");
+
+  const validPassword = await bcrypt.compare(password, user.pwd);
+  if (!validPassword) throw new GraphQLError("Invalid Email or Password");
+
+  if (!user.is_active)
+    throw new GraphQLError(
+      "Account suspended, Please contact the admin for rectification!!!"
+    );
+
+  // Access the IP address from the context
+  const clientIpAddress = context.req.connection.remoteAddress;
+
+  // using the role_id, to get the role of the user
+  const [role] = await getRoles({
+    id: user.role_id,
+  });
+
+  if (!role) throw new GraphQLError("User has no role in the system!");
+
+  const firstExtract = JSON.parse(role.permissions);
+
+  const permissionsObj = JSON.parse(firstExtract);
+
+  const session_id = generateUniqueID();
+
+  const tokenData = {
+    id: user.user_id,
+    permissions: permissionsObj,
+    session_id: session_id,
+  };
+
+  const SALT_ROUNDS = 10;
+  const token = jwt.sign(tokenData, PRIVATE_KEY, {
+    expiresIn: "1d",
+  });
+
+  // create session for the login
+  const data = {
+    user_id: user.user_id,
+    session_id,
+    machine_ipaddress: clientIpAddress,
+  };
+
+  const save_id = await saveData({
+    table: "management_user_logins",
+    data,
+    id: null,
+  });
+
+  context.res.setHeader("x-auth-token", `Bearer ${token}`);
+
+  return token;
 };
 
 export const getUserLastLoginDetails = async ({ user_id, lastRecord }) => {
@@ -182,110 +260,23 @@ const userResolvers = {
       }
     },
     login: async (parent, args, context) => {
-      const user = await _db("management_users")
-        .where({
-          email: args.email,
-        })
-        .first();
-
-      if (!user) throw new GraphQLError("Invalid Email or Password");
-
-      const validPassword = await bcrypt.compare(args.pwd, user.pwd);
-      if (!validPassword) throw new GraphQLError("Invalid Email or Password");
-
-      if (!user.is_active)
-        throw new GraphQLError(
-          "Account suspended, Please contact the admin for rectification!!!"
-        );
-
-      // Access the IP address from the context
-      const clientIpAddress = context.req.connection.remoteAddress;
-
-      // using the role_id, to get the role of the user
-      const [role] = await getRoles({
-        id: user.role_id,
+      const token = await loginUser({
+        email: args.email,
+        password: args.pwd,
+        context,
       });
-
-      if (!role) throw new GraphQLError("User has no role in the system!");
-
-      const firstExtract = JSON.parse(role.permissions);
-
-      const permissionsObj = JSON.parse(firstExtract);
-
-      const SALT_ROUNDS = 10;
-      const token = jwt.sign(
-        {
-          id: user.user_id,
-          permissions: permissionsObj,
-        },
-        PRIVATE_KEY,
-        {
-          expiresIn: "1d",
-        }
-      );
-
-      const tokenHash = await bcrypt.hash(token, SALT_ROUNDS);
-
-      // create session for the login
-      await _db("management_user_logins").insert({
-        user_id: user.user_id,
-        token_hash: tokenHash,
-        machine_ipaddress: clientIpAddress,
-      });
-
-      context.res.setHeader("x-auth-token", `Bearer ${token}`);
 
       return { token };
-
-      // return user;
     },
     unlockSession: async (parent, args, context) => {
       const user_id = context.req.user.id;
-      const user = await _db("management_users")
-        .where({
-          user_id: user_id,
-        })
-        .first();
-
-      if (!user) throw new GraphQLError("Invalid User!!!");
-
-      const validPassword = await bcrypt.compare(args.pwd, user.pwd);
-      if (!validPassword)
-        throw new GraphQLError("Invalid Password, Please try again!");
-
-      if (!user.is_active)
-        throw new GraphQLError(
-          "Account suspended, Please contact the admin for rectification!!!"
-        );
-
-      // Access the IP address from the context
-      const clientIpAddress = context.req.connection.remoteAddress;
-
-      const SALT_ROUNDS = 10;
-      const token = jwt.sign(
-        {
-          id: user.user_id,
-        },
-        PRIVATE_KEY,
-        {
-          expiresIn: "1d",
-        }
-      );
-
-      const tokenHash = await bcrypt.hash(token, SALT_ROUNDS);
-
-      // create session for the login
-      await _db("management_user_logins").insert({
-        user_id: user.user_id,
-        token_hash: tokenHash,
-        machine_ipaddress: clientIpAddress,
+      const token = await loginUser({
+        user_id,
+        password: args.pwd,
+        context,
       });
 
-      context.res.setHeader("x-auth-token", `Bearer ${token}`);
-
       return { token };
-
-      // return user;
     },
     change_password: async (parent, args) => {
       const salt = await bcrypt.genSalt();

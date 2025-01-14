@@ -98,7 +98,8 @@ export const getStdResults = async ({
         cu.grading_id,
         gd.grade_letter AS grade,
         gd.grade_point,
-        ay.acc_yr_title
+        ay.acc_yr_title,
+        COALESCE(ROUND(r.final_mark, 0), ROUND(r.coursework + r.exam, 0)) AS final_mark
     FROM 
         results r
     LEFT JOIN 
@@ -108,7 +109,7 @@ export const getStdResults = async ({
     LEFT JOIN 
         grading_system_details gd 
         ON gd.grading_system_id = cu.grading_id 
-          AND COALESCE(r.final_mark, 0) BETWEEN gd.min_value AND gd.max_value 
+          AND COALESCE(ROUND(r.final_mark, 0), ROUND(r.coursework + r.exam, 0)) BETWEEN gd.min_value AND gd.max_value 
           AND gd.deleted = 0
       ${where}
       ORDER BY study_yr ASC, semester ASC
@@ -216,14 +217,14 @@ const studentMarksRessolvers = {
 
         for (const batch of batches) {
           await connection.beginTransaction();
+          // console.log("batch", batch)
 
           // Collect all unique values needed for batch processing
-          const moduleCodes = [...new Set(batch.map((r) => r.module_code))];
+          // const moduleCodes = [...new Set(batch.map((r) => r.module_code))];
           const accYrs = [...new Set(batch.map((r) => r.acc_yr))];
           const uploadedBys = [...new Set(batch.map((r) => r.uploaded_by))];
           const studentNos = [...new Set(batch.map((r) => r.student_no))];
 
-          // console.log("the batch", batch);
           // Pre-fetch modules
           for (const course_unit of batch) {
             // Fetch the student details
@@ -239,12 +240,12 @@ const studentMarksRessolvers = {
                 `Student with student_no ${course_unit.student_no} not found`
               );
 
-            console.log("payload", {
-              course_unit_code: course_unit.module_code,
-              course_id: studentDetails.course_id,
-              course_version_id: studentDetails.course_version_id,
-              course_unit_title: course_unit.module_title,
-            });
+            // console.log("payload", {
+            //   course_unit_code: course_unit.module_code,
+            //   course_id: studentDetails.course_id,
+            //   course_version_id: studentDetails.course_version_id,
+            //   course_unit_title: course_unit.module_title,
+            // });
 
             const [module] = await getCourseUnits({
               course_unit_code: course_unit.module_code,
@@ -253,7 +254,7 @@ const studentMarksRessolvers = {
               course_unit_title: course_unit.module_title,
             });
 
-            console.log("module", module);
+            // console.log("module", module);
 
             if (!module)
               throw new Error(
@@ -310,7 +311,7 @@ const studentMarksRessolvers = {
           for (const name of uploadedBys) {
             if (!employeeCache.has(name)) {
               const nameWithoutTitle = name
-                .replace(/^(MR\.|MS\.|MRS\.\s*)/i, "")
+                .replace(/^(DR\.|MR\.|MS\.|MRS\.\s*)/i, "")
                 .trim();
               const nameParts = nameWithoutTitle.split(" ");
               const surname = nameParts[0];
@@ -320,6 +321,13 @@ const studentMarksRessolvers = {
                 surname,
                 other_names: otherNames,
               });
+
+              // console.log("payload", {
+              //   surname,
+              //   other_names: otherNames,
+              // });
+
+              // console.log("employee", employee);
               if (!employee) throw new Error(`Employee ${name} not found`);
               employeeCache.set(name, employee);
             }

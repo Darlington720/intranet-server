@@ -74,6 +74,7 @@ export const createTuitionInvoice = async ({
 }) => {
   try {
     // now, lets talk about invoicing -> tuition
+
     const applicant = await getApplicant(student_details[0].applicant_id);
 
     if (!applicant) {
@@ -199,6 +200,146 @@ export const createTuitionInvoice = async ({
       data: line_items_data,
       id: null,
     });
+  } catch (error) {
+    console.log("tuition error", error.message);
+    throw new GraphQLError(error.message);
+  }
+};
+
+export const createTuitionInvoiceV2 = async ({
+  student_no,
+  academic_year,
+  study_year,
+  semester,
+}) => {
+  try {
+    // now, lets talk about invoicing -> tuition
+    const tuition_invoice_no = await generateInvoiceNo({
+      student_no,
+      invoice_category: "TUITION", // invoice_category
+    });
+
+    // now lets get the student details
+    const [student_details] = await getStudents({
+      std_no: student_no,
+      fetchStdBio: true,
+      get_course_details: true,
+    });
+
+    if (!student_details) {
+      throw new GraphQLError(`Failed to locate student`);
+    }
+
+    // after getting the student, we need to fetch the fees structure if that student based on recent enrollment
+    // lets begin with tuition
+    const tuition_fees = await getTuitionFees({
+      acc_yr_id: student_details.entry_acc_yr,
+      campus_id: student_details.campus_id,
+      intake_id: student_details.intake_id,
+      course_id: student_details.course_id,
+      nationality_category_id: student_details.nationality_category_id,
+      study_yr: study_year,
+      study_time_id: student_details.study_time_id,
+    });
+
+    // console.log("tuition fees-------", tuition_fees);
+
+    if (tuition_fees.length == 0) {
+      throw new GraphQLError(
+        `Failed to Create Invoice\nTuition Fees for Study Year: ${study_year}, semester: ${semester} not set.`
+      );
+    }
+
+    // distribute tuition fees
+    const distributedTuitionFees = await distributeTuitionFees(
+      student_details.course_duration,
+      tuition_fees,
+      2
+    );
+
+    // now filter out the exact year and semester
+    const tuition = distributedTuitionFees.filter(
+      (fee) =>
+        fee.study_yr == parseInt(study_year) &&
+        fee.semester == parseInt(semester)
+    );
+
+    // now that we have the tuition_fees for the given academic year and study_year, lets create the invoice
+    // first, we need an invoice number, the convention is -> 2000101041-T-202410001
+
+    // lets now aggregate all the items returned above to get the total amount
+    let amount = 0;
+    tuition.map((fee) => {
+      amount += parseInt(fee.amount);
+    });
+
+    // lets get the closing date of the current sem for the given student intakes
+    const running_sems = await getRunningSemesters({
+      intake_id: student_details.intake_id,
+    });
+
+    const semesterEndDate = running_sems.end_date;
+    const dueDate = moment(semesterEndDate)
+      .subtract(1, "months")
+      .format("YYYY-MM-DD");
+
+    let amount_paid = 0;
+
+    const data = {
+      student_no,
+      student_id: student_details.id,
+      invoice_no: tuition_invoice_no,
+      reference: `${student_no} TUITION FEES`,
+      currency_code: "UGX",
+      invoice_date: new Date(),
+      due_date: dueDate,
+      narration: "TUITION",
+      study_year,
+      semester,
+      acc_yr_id: academic_year,
+      total_amount: amount,
+      total_credit: 0,
+      total_ppas: 0,
+      total_dps: 0,
+      amount_paid,
+      amount_due: amount - amount_paid,
+      status: "pending",
+      paid: 0,
+      voided: 0,
+      invoice_type: "MANDATORY",
+      invoice_category: "TUITION",
+    };
+
+    // then the line items
+    const line_items_data = tuition.map((fee) => ({
+      invoice_no: tuition_invoice_no,
+      student_no,
+      item_id: fee.item_id,
+      item_code: fee.item_code,
+      unit_amount: fee.amount,
+      quantity: 1,
+      item_description: fee.item_description,
+      item_comments: fee.item_description,
+      date: new Date(),
+    }));
+
+    // console.log("created Invoice", data);
+    // console.log("tuition", tuition);
+    // console.log("the line items", line_items_data);
+
+    await saveData({
+      table: "student_invoices",
+      data,
+      id: null,
+    });
+
+    await saveData({
+      table: "line_items",
+      data: line_items_data,
+      id: null,
+    });
+
+    return tuition_invoice_no;
   } catch (error) {
     console.log("tuition error", error.message);
     throw new GraphQLError(error.message);
@@ -346,6 +487,145 @@ export const createFunctionalInvoice = async ({
       data: line_items_data,
       id: null,
     });
+  } catch (error) {
+    console.log("functional error", error);
+    throw new GraphQLError(error.message);
+  }
+};
+
+export const createFunctionalInvoiceV2 = async ({
+  student_no,
+  academic_year,
+  study_year,
+  semester,
+  invoice_category,
+}) => {
+  try {
+    // now, lets talk about invoicing -> tuition
+    const functional_invoice_no = await generateInvoiceNo({
+      student_no,
+      invoice_category: "FUNCTIONAL", // invoice_category
+    });
+
+    // now lets get the student details
+    const [student_details] = await getStudents({
+      std_no: student_no,
+      fetchStdBio: true,
+      get_course_details: true,
+    });
+
+    if (!student_details) {
+      throw new GraphQLError(`Failed to locate student`);
+    }
+
+    // after getting the student, we need to fetch the fees structure if that student based on recent enrollment
+    // functional fees
+    const functional_fees = await getFunctionalFees({
+      acc_yr_id: student_details.entry_acc_yr,
+      campus_id: student_details.campus_id,
+      intake_id: student_details.intake_id,
+      level_id: student_details.level,
+      nationality_category_id: student_details.nationality_category_id,
+      study_time_id: student_details.study_time_id,
+    });
+
+    if (functional_fees.length == 0) {
+      throw new GraphQLError(
+        `Functional Fees for Study Year: ${study_year}, semester: ${semester} not set.`
+      );
+    }
+
+    // distribute tuition fees
+    const distributedFunctionalFees = await distributeFees(
+      student_details.course_duration,
+      functional_fees,
+      2
+    );
+
+    // now filter out the exact year and semester
+    const functional = distributedFunctionalFees.filter(
+      (fee) =>
+        fee.study_yr == parseInt(study_year) &&
+        fee.semester == parseInt(semester)
+    );
+
+    if (functional.length == 0) {
+      throw new GraphQLError(
+        `Functional Fees for Study Year: ${study_year}, semester: ${semester} not set.`
+      );
+    }
+
+    // lets now aggregate all the items returned above to get the total amount
+    let amount = 0;
+    functional.map((fee) => {
+      amount += parseInt(fee.amount);
+    });
+
+    // lets get the closing date of the current sem for the given student intakes
+    const running_sems = await getRunningSemesters({
+      intake_id: student_details.intake_id,
+    });
+
+    const semesterEndDate = running_sems[0].end_date;
+    const dueDate = moment(semesterEndDate)
+      .subtract(1, "months")
+      .format("YYYY-MM-DD");
+
+    let amount_paid = 0;
+
+    const data = {
+      student_no,
+      student_id: student_details.id,
+      invoice_no: functional_invoice_no,
+      reference: `${student_no} FUNCTIONAL FEES`,
+      currency_code: "UGX",
+      invoice_date: new Date(),
+      due_date: dueDate,
+      narration: "FUNCTIONAL",
+      study_year,
+      semester,
+      acc_yr_id: academic_year,
+      total_amount: amount,
+      total_credit: 0,
+      total_ppas: 0,
+      total_dps: 0,
+      amount_paid,
+      amount_due: amount - amount_paid,
+      status: "pending",
+      paid: 0,
+      voided: 0,
+      invoice_type: "MANDATORY",
+      invoice_category: "FUNCTIONAL",
+    };
+
+    // then the line items
+    const line_items_data = functional.map((fee) => ({
+      invoice_no: functional_invoice_no,
+      student_no,
+      item_id: fee.item_id,
+      item_code: fee.item_code,
+      unit_amount: fee.amount,
+      quantity: 1,
+      item_description: fee.item_description,
+      item_comments: fee.item_description,
+      date: new Date(),
+    }));
+
+    // console.log("created Invoice", data);
+    // console.log("the line items", line_items_data);
+
+    await saveData({
+      table: "student_invoices",
+      data,
+      id: null,
+    });
+
+    await saveData({
+      table: "line_items",
+      data: line_items_data,
+      id: null,
+    });
+    return functional_invoice_no;
   } catch (error) {
     console.log("functional error", error);
     throw new GraphQLError(error.message);

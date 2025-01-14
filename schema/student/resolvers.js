@@ -8,24 +8,22 @@ import saveData from "../../utilities/db/saveData.js";
 import { getRunningSemesters } from "../academic_schedule/resolvers.js";
 import { getStudentEnrollment } from "../student_enrollment/resolvers.js";
 import {
-  findDeadSemesters,
-  generateSemesterList,
-  generateSemesterListForNormalProgress,
-} from "../../utilities/calculateEnrollment.js";
-import { getStudentInvoices } from "../invoice/resolvers.js";
+  createFunctionalInvoiceV2,
+  createTuitionInvoiceV2,
+  getStudentInvoices,
+} from "../invoice/resolvers.js";
 import { getStudentRegistrationHistory } from "../student_registration/resolvers.js";
 import generateEnrollmentToken from "../../utilities/generateToken.js";
 import chunk from "lodash.chunk";
-import { getCampus } from "../campus/resolvers.js";
-import { getStudyTime } from "../study_time/resolvers.js";
-import { getIntake } from "../intake/resolvers.js";
 import fetchOrCreateRecord from "../../utilities/helpers/fetchOrCreateRecord.js";
-import { getCourse } from "../course/resolvers.js";
+import { getCourse, getCourseVersionDetails } from "../course/resolvers.js";
 import fetchOrCreateEnrollmentStatus from "../../utilities/helpers/fetchOrCreateEnrollmentStatus.js";
 import saveDataWithOutDuplicates from "../../utilities/db/saveDataWithOutDuplicates.js";
 import { GraphQLError } from "graphql";
 import { getStdResults } from "../student_marks/resolvers.js";
 import calculateGrades from "../../utilities/helpers/calculateGrades.js";
+import calculateNextEnrollment from "../../utilities/helpers/calculateNextEnrollment.js";
+import { getEnrollmentTypes } from "../enrollment_status/resolvers.js";
 
 export const getApplicant = async (applicant_id) => {
   try {
@@ -89,6 +87,7 @@ export const getStudents = async ({
   std_no,
   regno,
   get_course_details = false,
+  fetchStdBio = false,
 }) => {
   try {
     let where = "";
@@ -139,6 +138,12 @@ export const getStudents = async ({
     if (get_course_details) {
       extra_join += " LEFT JOIN courses ON courses.id = students.course_id";
       extra_select += " ,courses.course_duration, courses.level";
+    }
+
+    if (fetchStdBio) {
+      extra_join +=
+        " LEFT JOIN applicants ON applicants.id = students.applicant_id LEFT JOIN nationality_categories ON applicants.nationality_id = nationality_categories.id";
+      extra_select += " ,nationality_categories.id as nationality_category_id";
     }
 
     let sql = `SELECT 
@@ -241,7 +246,9 @@ const studentResolvers = {
 
         if (!student_enrollment[0]) {
           // student is not yet enrolled
-          enrollment_status = `Not Enrolled in Sem ${running_semesters[0].semester}`;
+          enrollment_status = `Not Enrolled in Sem ${
+            running_semesters[0].semester || 1
+          }`;
         } else {
           enrollment_status = "Enrolled";
         }
@@ -320,6 +327,15 @@ const studentResolvers = {
         // console.log("err", error.message);
         throw new GraphQLError(error.message);
       }
+    },
+    my_results: async (parent, args, context) => {
+      const student_no = context.req.user.student_no;
+
+      const result = await getStudents({
+        std_no: student_no,
+      });
+
+      return result[0];
     },
   },
   Student: {
@@ -431,121 +447,49 @@ const studentResolvers = {
       try {
         let enrollment_status = null;
         let registration_status = null;
-        // lets first get the most recent enrollment
-        let sql = `SELECT students_enrollment.*, acc_yrs.acc_yr_title
-        FROM students_enrollment 
-        LEFT JOIN acc_yrs ON acc_yrs.id = students_enrollment.acc_yr
-        WHERE students_enrollment.deleted = 0 AND stdno = ? AND students_enrollment.enrollment_status_id != ?
-        ORDER BY id DESC LIMIT 1`;
-        let values = [student_no, 6];
-        const [results, fields] = await db.execute(sql, values);
-        // console.log("recent enrollment", results);
-        const recentEn = results[0];
 
-        const student = await getStudents({
+        // lets first get the most recent enrollment
+        const enrollment_history = await getStudentEnrollment({
           std_no: student_no,
-          get_course_details: true,
+          exclude_dead_semesters: true,
         });
 
-        // console.log("the student", student);
+        const recentEn = enrollment_history[0];
 
-        if (!student[0]) throw new GraphQLError(`Failed to get student...`);
+        const [courseDetails] = await getCourse({
+          course_id: parent.course_id,
+          course_version_id: parent.course_version_id,
+        });
 
         // now, lets proceed to the current university session based on student intake
-        const sems = await getRunningSemesters({
+        const [runningSem] = await getRunningSemesters({
           intake_id,
+          limit: 1,
         });
 
-        const runningSem = sems[0];
+        const student_enrollment = enrollment_history.filter(
+          (enrollment) =>
+            enrollment.acc_yr == runningSem.acc_yr_id &&
+            enrollment.sem == runningSem.semester
+        );
 
-        // console.log("running", sems);
-
-        const all_student_enrollment = await getStudentEnrollment({
-          std_no: student_no,
+        console.log("student enrollment", student_enrollment);
+        const nextEn = calculateNextEnrollment({
+          enrollmentHistory: enrollment_history,
+          currentAccYr: runningSem.acc_yr_title,
+          courseDuration: courseDetails.course_duration,
+          entryAccYr: parent.entry_acc_yr_title,
         });
 
-        // console.log("all", all_student_enrollment);
+        // console.log("next en", nextEn);
 
-        const student_enrollment = all_student_enrollment.filter(
-          (enrollment) => enrollment.active_sem_id == runningSem.id
-        );
-
-        let activeSem;
-        let expectedSemesters;
-
-        // based on student progress, we might need to create a different path for the student
-        // let's first look for any dead sem in this student's records
-        const deadSem = all_student_enrollment.filter(
-          (enrollment) => enrollment.enrollment_status_id == "6"
-        );
-
-        // console.log("has dead sem", deadSem);
-
-        let enrollmentHist = await getStudentEnrollment({
-          std_no: student_no,
-          exclude_dead_semesters: 1,
+        const enrollment_types = await getEnrollmentTypes({
+          enrollent_codes: nextEn.enrollment_status,
         });
-
-        if (deadSem[0]) {
-          activeSem = {
-            acc_yr_title: runningSem.acc_yr_title,
-            semester:
-              all_student_enrollment.length > 0
-                ? all_student_enrollment[0].next_sem
-                : 1,
-          };
-          // expectedSemesters = generateSemesterList(
-          //   all_student_enrollment[0].acc_yr_title,
-          //   student[0].course_duration,
-          //   all_student_enrollment[0].study_yr
-          // );
-
-          expectedSemesters = generateSemesterList(
-            runningSem.acc_yr_title,
-            student[0].course_duration,
-            enrollmentHist[0].study_yr,
-            all_student_enrollment.length > 0
-              ? all_student_enrollment[0].next_sem
-              : 1,
-            enrollmentHist[0].datetime
-          );
-
-          // expectedSemesters = generateSemesterListForNormalProgress(
-          //   enrollmentHist[enrollmentHist.length - 1].acc_yr_title,
-          //   student[0].course_duration,
-          //   enrollmentHist[enrollmentHist.length - 1].study_yr
-          // );
-        } else {
-          expectedSemesters = generateSemesterListForNormalProgress(
-            student[0].entry_acc_yr_title,
-            student[0].course_duration
-          );
-          activeSem = runningSem;
-        }
-
-        // console.log("active sem", activeSem);
-
-        const { deadSemesters, nextEnrollment } = findDeadSemesters(
-          enrollmentHist,
-          expectedSemesters,
-          activeSem
-        );
-
-        // console.log("history", enrollmentHist);
-        // console.log("expected sems", expectedSemesters);
-        // console.log("dead sems", deadSemesters);
-        // console.log("next enroll", nextEnrollment);
-        // console.log("next sem", all_student_enrollment[0]);
 
         if (!student_enrollment[0]) {
           // student is not yet enrolled
-          enrollment_status = `Not Enrolled in Sem ${
-            deadSem[0]
-              ? all_student_enrollment[0]?.next_sem
-              : enrollmentHist.length > 0
-              ? runningSem.semester
-              : nextEnrollment.semester
-          }`;
+          enrollment_status = `Not Enrolled in Sem ${runningSem.semester}`;
         } else {
           enrollment_status = "Enrolled";
         }
@@ -559,17 +503,10 @@ const studentResolvers = {
         const existingRegistration = await getStudentRegistrationHistory({
           std_no: student_no,
           acc_yr: runningSem.acc_yr_id,
-          // study_yr: nextEnrollment?.studyYear,
-          // sem: deadSem[0]
-          //   ? all_student_enrollment[0]?.next_sem
-          //   : enrollmentHist.length > 0
-          //   ? runningSem.semester
-          //   : nextEnrollment.semester,
+          sem: runningSem.semester,
         });
 
         const currentDate = new Date();
-
-        // console.log("registration", existingRegistration);
 
         if (existingRegistration.length === 0) {
           registration_status = "Not Registered";
@@ -592,19 +529,13 @@ const studentResolvers = {
           current_acc_yr: runningSem.acc_yr_title,
           acc_yr_id: runningSem.acc_yr_id,
           active_sem_id: runningSem.id,
-          true_sem: deadSem[0]
-            ? all_student_enrollment[0]?.next_sem
-            : enrollmentHist.length > 0
-            ? runningSem.semester
-            : nextEnrollment.semester,
-          true_study_yr: nextEnrollment?.studyYear,
+          true_study_yr: nextEn.study_year,
+          true_sem: nextEn.semester,
           enrollment_status,
-          progress:
-            deadSem.length > 0
-              ? `BEHIND BY ${deadSem.length} SEM(S)`
-              : "NORMAL",
+          progress: "NORMAL",
           account_balance: account_balance || 0,
           registration_status,
+          enrollment_types,
         };
 
         // console.log("the data", data);
@@ -1609,6 +1540,208 @@ const studentResolvers = {
         };
       } catch (error) {
         await connection.rollback();
+        console.log("errror", error);
+
+        throw new GraphQLError(error.message);
+      } finally {
+        await connection.release();
+      }
+    },
+    uploadStudentsV2: async (parent, args, context) => {
+      const BATCH_SIZE = 500;
+      const user_id = context.req.user.id;
+
+      let connection;
+      connection = await db.getConnection();
+
+      try {
+        // Begin a database transaction
+        await connection.beginTransaction();
+
+        // Divide the payload into chunks
+        const studentChunks = chunk(args.payload, BATCH_SIZE);
+
+        // console.log("student chunks", studentChunks);
+
+        for (const chunk of studentChunks) {
+          const campusIds = {};
+          const studyTimeIds = {};
+          const intakeIds = {};
+          const nationalityIds = {};
+          const enrollmentStatusIds = {};
+
+          // Pre-fetch or create references in bulk to reduce database calls
+          for (const student of chunk) {
+            // Fetch or create campus, study_time, intake, etc.
+            campusIds[student.campus] =
+              campusIds[student.campus] ||
+              (await fetchOrCreateRecord({
+                table: "campuses",
+                field: "campus_title",
+                value: student.campus,
+                user_id,
+              }));
+
+            studyTimeIds[student.study_time] =
+              studyTimeIds[student.study_time] ||
+              (await fetchOrCreateRecord({
+                table: "study_times",
+                field: "study_time_title",
+                value: student.study_time,
+                user_id,
+              }));
+
+            intakeIds[student.intake] =
+              intakeIds[student.intake] ||
+              (await fetchOrCreateRecord({
+                table: "intakes",
+                field: "intake_title",
+                value: student.intake,
+                user_id,
+              }));
+
+            nationalityIds[student.nationality] =
+              nationalityIds[student.nationality] ||
+              (await fetchOrCreateRecord({
+                table: "nationalities",
+                field: "nationality_title",
+                value: student.nationality,
+                user_id,
+              }));
+          }
+
+          // Prepare bulk data for inserts/updates
+          const applicantsData = [];
+          const studentsData = [];
+          const enrollmentData = [];
+          const registrationData = [];
+
+          for (const student of chunk) {
+            const courses = await getCourse({
+              course_code: student.progcode,
+            });
+
+            // console.log("course", course);
+
+            const course = courses[courses.length - 1];
+
+            if (!course) {
+              throw new GraphQLError("Course not found: " + student.progcode);
+            }
+
+            // console.log("applicant", applicant_data);
+
+            const existingStds = await getStudents({
+              campus_id: campusIds[student.campus],
+              intake_id: intakeIds[student.intake],
+              // acc_yr_id: enrtry_acc_yr_id,
+              // course_version_id,
+              sic: true,
+              std_no: student.stdno,
+              get_course_details: true,
+            });
+
+            // Create applicant data
+            const applicant_data = {
+              surname: student.surname,
+              other_names: student.other_names,
+              email: student.email ? student.email : "",
+              phone_no: student.telno ? student.telno : "",
+              nationality_id: nationalityIds[student.nationality],
+              gender: student.sex,
+              is_verified: 1,
+              has_pwd: 1,
+              place_of_residence: "",
+              permanent_district: "",
+              created_at: new Date(),
+              date_of_birth: new Date(student.dob_sdate),
+              district_of_birth: student.home_district,
+            };
+
+            // if (students.length > 0) {
+            //   throw new GraphQLError("Student already exists: " + student.stdno);
+            // }
+
+            const save_applicant_id = await saveData({
+              table: "applicants",
+              data: applicant_data,
+              // uniqueField: ""
+              id: existingStds.length > 0 ? existingStds[0].applicant_id : null,
+            });
+
+            // console.log("course", {
+            //   course: course,
+            //   std: student,
+            // });
+
+            const course_version = await getCourseVersionDetails({
+              course_id: course.id,
+              course_version: student.progversion,
+            });
+
+            if (!course) {
+              throw new GraphQLError(
+                "Course version not found: " +
+                  student.progversion +
+                  " for course: " +
+                  student.progcode
+              );
+            }
+
+            // console.log("existing ", existingStds);
+
+            studentsData.push({
+              student_no: student.stdno,
+              registration_no: student.regno,
+              course_id: course.id,
+              course_version_id: course_version.id,
+              applicant_id: save_applicant_id,
+              campus_id: campusIds[student.campus],
+              intake_id: intakeIds[student.intake],
+              study_time_id: studyTimeIds[student.study_time],
+              is_std_verified: 1,
+              is_resident: student.residence_status === "NON-RESIDENT" ? 0 : 1,
+              hall_of_residence: student.hall_of_residence || "",
+              entry_study_yr: 1,
+              entry_acc_yr: await fetchOrCreateRecord({
+                table: "acc_yrs",
+                field: "acc_yr_title",
+                value: student.entry_ac_yr,
+                user_id,
+              }),
+              is_on_sponsorship: student.sponsorship === "PRIVATE" ? 0 : 1,
+              added_by: user_id,
+              creation_date: new Date(),
+              tredumo_admitted: 0,
+              imported_record: 1,
+              sponsorship: student.sponsorship,
+              form_no: student.admissions_form_no,
+            });
+          }
+
+          // console.log("applicants", applicantsData);
+          // console.log("students", studentsData);
+          // console.log("enrollments", enrollmentData);
+          // console.log("registrations", registrationData);
+
+          // Insert data in bulk
+          await saveDataWithOutDuplicates({
+            table: "students",
+            data: studentsData,
+            uniqueField: "student_no",
+            // id: null,
+          });
+        }
+
+        // Commit the transaction after processing all chunks
+        await connection.commit();
+
+        return {
+          success: true,
+          message: "Students uploaded successfully",
+        };
+      } catch (error) {
+        await connection.rollback();
 
         throw new GraphQLError(error.message);
       } finally {
@@ -1744,6 +1877,112 @@ const studentResolvers = {
         return {
           success: "true",
           message: "Student Credentials Saved Successfully",
+        };
+      } catch (error) {
+        throw new GraphQLError(error.message);
+      }
+    },
+    studentSemesterEnrollment: async (parent, args, context) => {
+      try {
+        const stdno = context.req.user.student_no;
+        const enrollmentToken = generateEnrollmentToken();
+        let invoiced = false;
+        let tuition_invoice_no = null;
+        let functional_invoice_no = null;
+        const { acc_yr_id, study_yr, sem, enrollment_status_id } = args.payload;
+
+        // check if the student fully registered for the the prev sem
+        const [prevEnrollment] = await getStudentEnrollment({
+          std_no: stdno,
+          limit: 1,
+        });
+
+        if (prevEnrollment) {
+          // check for the registration based on the enrollment
+          const [prevReg] = await getStudentRegistrationHistory({
+            std_no: stdno,
+            enrollment_token: prevEnrollment.enrollment_token,
+            limit: 1,
+          });
+
+          if (!prevReg)
+            throw new GraphQLError(
+              "Error occurred during enrollment, Please contact the administrative help desk to enroll!"
+            );
+        }
+
+        // check if student is already enrolled in the given study_yr and sem
+        const existingEnrollment = await getStudentEnrollment({
+          std_no: stdno,
+          study_yr,
+          sem,
+          enrollment_status_id,
+        });
+
+        if (existingEnrollment.length > 0)
+          throw new GraphQLError(
+            "Student is already enrolled in the given semester and study yr"
+          );
+
+        // i need the enrollment status details to figure out where to exempt tuition or not
+        const [enrollmentStatus] = await getEnrollmentTypes({
+          id: enrollment_status_id,
+        });
+
+        if (!enrollmentStatus) {
+          throw new GraphQLError("Invalid/Unknown status id!");
+        }
+
+        if (!enrollmentStatus.exempt_tuition) {
+          // generate a tuition invoice
+          const tuition_invoice = await createTuitionInvoiceV2({
+            student_no: stdno,
+            academic_year: acc_yr_id,
+            study_year: study_yr,
+            semester: sem,
+          });
+          tuition_invoice_no = tuition_invoice;
+          invoiced = true;
+        }
+
+        if (!enrollmentStatus.exempt_functional) {
+          // generate a functional invoice
+          const functional_invoice = await createFunctionalInvoiceV2({
+            student_no: stdno,
+            academic_year: acc_yr_id,
+            study_year: study_yr,
+            semester: sem,
+          });
+          functional_invoice_no = functional_invoice;
+        }
+
+        const data = {
+          enrollment_token: enrollmentToken,
+          stdno,
+          acc_yr: acc_yr_id,
+          study_yr,
+          sem,
+          enrollment_status_id,
+          datetime: new Date(),
+          enrolled_by: stdno,
+          enrolled_by_type: "student",
+          next_sem: sem == 1 ? 2 : 1,
+          tuition_invoice_no: tuition_invoice_no,
+          functional_invoice_no: functional_invoice_no,
+          invoiced,
+        };
+
+        // console.log("enrollment", data);
+
+        await saveData({
+          table: "students_enrollment",
+          data,
+          id: null,
+        });
+
+        return {
+          success: "true",
+          message: "Enrollment details saved successfully",
         };
       } catch (error) {
         throw new GraphQLError(error.message);

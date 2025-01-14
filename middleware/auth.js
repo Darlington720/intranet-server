@@ -25,6 +25,7 @@ const authenticateUser = async ({ req }) => {
   let decoded;
   try {
     decoded = jwt.verify(token, secretKey);
+    // console.log("decoded", decoded);
   } catch (error) {
     throw new GraphQLError("Invalid or expired token.", {
       extensions: { code: "UNAUTHENTICATED" },
@@ -48,17 +49,10 @@ const authenticateUser = async ({ req }) => {
     lastRecord: true,
   });
 
-  if (!lastLogin[0])
+  // console.log("last login", lastLogin);
+
+  if (!lastLogin[0] || lastLogin[0].session_id !== decoded.session_id)
     throw new GraphQLError("Invalid token...", {
-      extensions: { code: "UNAUTHENTICATED" },
-    });
-
-  // Check if the token matches the stored token hash
-  const tokenInDb = lastLogin[0].token_hash;
-  const validToken = await bcrypt.compare(token, tokenInDb);
-
-  if (!validToken)
-    throw new GraphQLError("Invalid or expired token....", {
       extensions: { code: "UNAUTHENTICATED" },
     });
 

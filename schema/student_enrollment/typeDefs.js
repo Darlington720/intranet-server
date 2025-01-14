@@ -15,7 +15,8 @@ const StudentEnrollmentTypeDefs = `#graphql
         tuition_invoice_no: String,
         functional_invoice_no: String,
         enrollment_status: EnrollmentStatus,
-        acc_yr_title: String
+        acc_yr_title: String,
+        enrolled_by_type: String,
     }
 
   

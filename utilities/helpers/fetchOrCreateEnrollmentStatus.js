@@ -22,6 +22,7 @@ async function fetchOrCreateEnrollmentStatus(statusKey) {
     title,
     description: `${title} description`, // You can customize this
     color_code: "blue", // Default color code; change as needed
+    code: title,
   };
 
   const save_id = await saveData({

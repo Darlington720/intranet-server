@@ -18,15 +18,25 @@ const studentRegisteredCourseUnitTypeDefs = `#graphql
 
     type Query {
         student_registered_courseunits(student_no: String!, study_year: Int!, sem: Int!): [StudentRegisteredCourseUnit]
+        student_selected_modules(study_year: Int!, sem: Int!): [StudentRegisteredCourseUnit]
     }
 
     type Mutation {
         register_module(payload: RegisterModuleInput!): ResponseMessage
         remove_module(module_id: String!): ResponseMessage
+        std_module_registration(payload: StdRegisterModuleInput!): ResponseMessage
     }
 
     input RegisterModuleInput {
         student_no: String!, 
+        course_unit_code: String!, 
+        study_yr: Int!, 
+        sem: Int!, 
+        status: String!,
+        acc_yr_id: String!
+    }
+
+    input StdRegisterModuleInput {
         course_unit_code: String!, 
         study_yr: Int!, 
         sem: Int!, 

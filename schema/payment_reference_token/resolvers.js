@@ -95,8 +95,15 @@ const paymentReferenceTokenResolvers = {
   //   },
   // },
   Mutation: {
-    generatePRT: async (parent, args) => {
-      const { id, student_no, amount, type, invoices, generated_by } = args;
+    generatePRT: async (parent, args, context) => {
+      const { id, student_no, amount, type, invoices } = args;
+      let user_id;
+      if (context.req.user.student_no) {
+        user_id = context.req.user.student_no;
+      } else {
+        user_id = context.req.user.id;
+      }
+
       const today = new Date();
       let allocations = null;
 
@@ -117,7 +124,9 @@ const paymentReferenceTokenResolvers = {
 
       //  lets prepare the data
       const data = {
-        student_no,
+        student_no: context.req.user.student_no
+          ? context.req.user.student_no
+          : student_no,
         type,
         prt,
         amount,
@@ -125,7 +134,8 @@ const paymentReferenceTokenResolvers = {
         prt_expiry: today,
         created_at: today,
         invoices, // serialise the invoices
-        generated_by,
+        generated_by: user_id,
+        generated_by_type: context.req.user.student_no ? "student" : "staff",
       };
 
       // save the prt
