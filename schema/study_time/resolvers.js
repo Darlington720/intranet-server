@@ -4,7 +4,7 @@ import generateUniqueID from "../../utilities/generateUniqueID.js";
 
 const getAllStudyTimes = async () => {
   try {
-    let sql = `SELECT * FROM study_times ORDER BY study_time_title ASC`;
+    let sql = `SELECT * FROM study_times where deleted = 0 ORDER BY study_time_title ASC`;
 
     const [results, fields] = await db.execute(sql);
     // console.log("results", results);

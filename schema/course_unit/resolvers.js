@@ -11,6 +11,8 @@ export const getCourseUnits = async ({
   course_unit_code,
   course_id,
   course_unit_title,
+  study_yr,
+  sem,
 }) => {
   try {
     let where = "";
@@ -39,6 +41,16 @@ export const getCourseUnits = async ({
     if (course_unit_title) {
       where += " AND course_unit_title = ?";
       values.push(course_unit_title);
+    }
+
+    if (study_yr) {
+      where += " AND course_unit_year = ?";
+      values.push(study_yr);
+    }
+
+    if (sem) {
+      where += " AND course_unit_sem = ?";
+      values.push(sem);
     }
 
     let sql = `SELECT * FROM course_units WHERE deleted = 0 ${where}`;

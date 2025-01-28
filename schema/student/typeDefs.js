@@ -40,7 +40,7 @@ const studentTypeDefs = `#graphql
         enrollment_history: [StudentEnrollment]!
         registration_history: [StudentRegistration]!
         invoices: [Invoice]!
-        student_marks: [StudentMark]
+        student_marks(study_yr: String, sem: String): [StudentMark]
         # registration_status
         # transactions
         # has_completed

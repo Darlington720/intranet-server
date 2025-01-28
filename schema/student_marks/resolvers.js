@@ -7,6 +7,11 @@ import { getEmployees } from "../employee/resolvers.js";
 import saveData from "../../utilities/db/saveData.js";
 import calculateGrades from "../../utilities/helpers/calculateGrades.js";
 import { getStudents } from "../student/resolvers.js";
+import saveDataWithOutDuplicates from "../../utilities/db/saveDataWithOutDuplicates.js";
+import { getAccYrs } from "../acc_yr/resolvers.js";
+import { getCampus } from "../campus/resolvers.js";
+import { getIntake } from "../intake/resolvers.js";
+import { getStudyTime } from "../study_time/resolvers.js";
 
 export const getStdMarks = async ({
   student_no,
@@ -59,6 +64,9 @@ export const getStdResults = async ({
   student_nos,
   start,
   limit,
+  course_units,
+  study_yr,
+  sem,
 }) => {
   try {
     let where = "WHERE r.deleted = 0";
@@ -75,10 +83,30 @@ export const getStdResults = async ({
       values.push(module_id);
     }
 
+    if (study_yr) {
+      where += " AND r.study_yr = ?";
+      values.push(study_yr);
+    }
+
+    if (sem) {
+      where += " AND r.semester = ?";
+      values.push(sem);
+    }
+
     if (student_nos && Array.isArray(student_nos) && student_nos.length > 0) {
       const placeholders = student_nos.map(() => "?").join(",");
       where += ` AND r.student_no IN (${placeholders})`;
       values.push(...student_nos);
+    }
+
+    if (
+      course_units &&
+      Array.isArray(course_units) &&
+      course_units.length > 0
+    ) {
+      const placeholders = course_units.map(() => "?").join(",");
+      where += ` AND r.module_id IN (${placeholders})`;
+      values.push(...course_units);
     }
 
     // Pagination
@@ -99,7 +127,7 @@ export const getStdResults = async ({
         gd.grade_letter AS grade,
         gd.grade_point,
         ay.acc_yr_title,
-        COALESCE(ROUND(r.final_mark, 0), ROUND(r.coursework + r.exam, 0)) AS final_mark
+        COALESCE(ROUND(r.final_mark, 0), ROUND(COALESCE(r.coursework, 0) + COALESCE(r.exam, 0), 0)) AS final_mark
     FROM 
         results r
     LEFT JOIN 
@@ -109,7 +137,7 @@ export const getStdResults = async ({
     LEFT JOIN 
         grading_system_details gd 
         ON gd.grading_system_id = cu.grading_id 
-          AND COALESCE(ROUND(r.final_mark, 0), ROUND(r.coursework + r.exam, 0)) BETWEEN gd.min_value AND gd.max_value 
+          AND COALESCE(ROUND(r.final_mark, 0), ROUND(COALESCE(r.coursework, 0) + COALESCE(r.exam, 0), 0)) BETWEEN gd.min_value AND gd.max_value 
           AND gd.deleted = 0
       ${where}
       ORDER BY study_yr ASC, semester ASC
@@ -126,6 +154,27 @@ export const getStdResults = async ({
       student_nos,
     });
     throw new GraphQLError("Error fetching student marks.");
+  }
+};
+
+const getResultsConfig = async ({ setting_name }) => {
+  try {
+    let where = "";
+    let values = [];
+
+    if (setting_name) {
+      where += " AND setting_name = ?";
+      values.push(setting_name);
+    }
+
+    let sql = `SELECT * FROM settings WHERE deleted = 0 ${where}`;
+
+    const [results, fields] = await db.execute(sql, values);
+    // console.log("results", results);
+    return results;
+  } catch (error) {
+    // console.log("error", error);
+    throw new GraphQLError("Error fetching settings...", error.message);
   }
 };
 
@@ -149,6 +198,123 @@ const studentMarksRessolvers = {
       });
 
       return result[0];
+    },
+    std_marks: async (parent, args) => {
+      const result = await getStudents({
+        std_no: args.student_nos,
+      });
+
+      return result;
+    },
+    get_result_config: async (parent, args) => {
+      const results = await getResultsConfig({
+        setting_name: "results_config",
+      });
+
+      let settingValue = null;
+
+      if (results.length > 0) {
+        const setting = results[0];
+        settingValue = JSON.parse(setting.setting_value);
+
+        const accYrId = settingValue.acc_yr_id;
+        const campusId = settingValue.campus_id;
+        const intakeId = settingValue.intake;
+
+        const [acc_yr] = await getAccYrs({
+          id: accYrId,
+        });
+
+        const [campus] = await getCampus({
+          id: campusId,
+        });
+
+        let intake;
+        let intake_id;
+        let study_time;
+        let study_time_id;
+
+        if (intakeId == "all") {
+          intake = "all";
+          intake_id = null;
+        } else {
+          const [res] = await getIntake({
+            id: intakeId,
+          });
+
+          intake = res.intake_title;
+          intake_id = res.id;
+        }
+
+        if (settingValue.study_time == "all") {
+          study_time = "all";
+          study_time_id = null;
+        } else {
+          const [res2] = await getStudyTime({
+            id: settingValue.study_time,
+          });
+
+          study_time = res2.study_time_title;
+          study_time_id = res2.id;
+        }
+
+        settingValue.acc_yr = acc_yr.acc_yr_title;
+        settingValue.acc_yr_id = acc_yr.id;
+        settingValue.campus = campus.campus_title;
+        settingValue.campus_id = campus.id;
+        settingValue.intake = intake;
+        settingValue.intake_id = intake_id;
+        settingValue.study_time = study_time;
+        settingValue.study_time_id = study_time_id;
+      }
+      // we need to parse the json
+
+      // console.log("result", setting);
+
+      return settingValue;
+    },
+    results: async (parent, args) => {
+      const {
+        course_id,
+        course_version_id,
+        acc_yr_id,
+        campus_id,
+        intake,
+        study_time,
+        study_yr,
+        sem,
+      } = args.payload;
+
+      // console.log("the payload", args.payload);
+
+      // lets first focus on the courseunits which will work as columns in the frontend
+      const courseunits = await getCourseUnits({
+        course_version_id,
+        course_id,
+        study_yr,
+        sem,
+      });
+
+      // console.log("course units", courseunits);
+
+      // now i need students and their marks -> students in that entry acc_yr, intake, campus, study_time
+      const students = await getStudents({
+        acc_yr_id,
+        intake_id: intake,
+        campus_id,
+        study_time,
+        course_version_id,
+      });
+
+      // console.log("the students", students);
+
+      return {
+        course_units: courseunits,
+        students_marks: students,
+      };
+
+      // now that i have the students in that academic year, i need their results with respect to the courseunits returned earlier
+      // const results = await getStdResults({
     },
   },
   AcademicYear: {
@@ -391,6 +557,29 @@ const studentMarksRessolvers = {
         throw new GraphQLError(error.message);
       } finally {
         if (connection) connection.release();
+      }
+    },
+    saveResultsConfig: async (parent, args) => {
+      // console.log("args", args.payload);
+      try {
+        const data = {
+          setting_name: "results_config",
+          setting_value: JSON.stringify(args.payload),
+        };
+
+        await saveData({
+          table: "settings",
+          data,
+          id: "results_config",
+          idColumn: "setting_name",
+        });
+
+        return {
+          success: "true",
+          message: "Settings Saved Successfully",
+        };
+      } catch (error) {
+        throw new GraphQLError(error.message);
       }
     },
   },

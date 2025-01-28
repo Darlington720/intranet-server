@@ -86,6 +86,7 @@ export const getStudents = async ({
   sic,
   std_no,
   regno,
+  study_time,
   get_course_details = false,
   fetchStdBio = false,
 }) => {
@@ -95,10 +96,21 @@ export const getStudents = async ({
     let extra_join = "";
     let values = [];
 
-    if (std_no) {
+    if (Array.isArray(std_no) && std_no.length > 0) {
+      // Handle multiple student numbers
+      const placeholders = std_no.map(() => "?").join(", ");
+      where += ` AND students.student_no IN (${placeholders})`;
+      values.push(...std_no);
+    } else if (std_no) {
+      // Handle single student number
       where += " AND students.student_no = ?";
       values.push(std_no);
     }
+
+    // if (std_no) {
+    //   where += " AND students.student_no = ?";
+    //   values.push(std_no);
+    // }
 
     if (regno) {
       where += " AND students.registration_no = ?";
@@ -126,8 +138,21 @@ export const getStudents = async ({
     }
 
     if (intake_id) {
-      where += " AND students.intake_id = ?";
-      values.push(intake_id);
+      if (intake_id == "all") {
+        where += " AND students.intake_id IS NOT NULL";
+      } else {
+        where += " AND students.intake_id = ?";
+        values.push(intake_id);
+      }
+    }
+
+    if (study_time) {
+      if (study_time == "all") {
+        where += " AND students.study_time_id IS NOT NULL";
+      } else {
+        where += " AND students.study_time_id = ?";
+        values.push(study_time);
+      }
     }
 
     if (course_version_id) {
@@ -351,11 +376,16 @@ const studentResolvers = {
     },
     student_marks: async (parent, args) => {
       try {
+        const { study_yr, sem } = args;
         const results = await getStdResults({
           student_no: parent.student_no,
+          study_yr,
+          sem,
           limit: 50,
           start: 0,
         });
+
+        // console.log("results", results);
 
         const resultsWithGrades = calculateGrades(
           results,

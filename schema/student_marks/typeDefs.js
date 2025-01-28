@@ -45,13 +45,60 @@ const StudentMarksTypeDefs = `#graphql
         comments: String
     }
 
+    type ResultsConfig {
+        acc_yr_id: String!,
+        acc_yr: String!,
+        campus_id: String!,
+        campus: String!,
+        intake_id: String,
+        intake: String!,
+        study_time_id: String,
+        study_time: String!,
+        study_yr: String,
+        sem: String
+    }
+
+    type CourseUnitReport {
+        course_unit_code: String!,
+        course_unit_title: String!,
+    } 
+
+    type StudentsResults {
+        course_units: [CourseUnit]
+        students_marks(study_yr: String, sem: String): [Student]
+    }
+
     type Query {
         student_marks(student_no: String!, page: Int!, start: Int!, limit: Int!): [StudentMark]
         get_student_marks(student_no: String!): Student
+        std_marks(student_nos: [String]!): [Student]
+        get_result_config: ResultsConfig!
+        results(payload: ResultsInput!): StudentsResults
     }
 
     type Mutation {
         bulkActiveStudentsResultsUpload(payload: [BulkActiveResultsInput]!): ResponseMessage
+        saveResultsConfig(payload: ResultsConfigInput!): ResponseMessage
+    }
+
+    input ResultsInput {
+        course_id: String!,
+        course_version_id: String!,
+        acc_yr_id: String!,
+        campus_id: String!,
+        intake: String!,
+        study_time: String!,
+        study_yr: String!,
+        sem: String! 
+    }
+
+    input ResultsConfigInput {
+        acc_yr_id: String!,
+        campus_id: String!,
+        intake: String!,
+        study_time: String!,
+        study_yr: String,
+        sem: String
     }
 
     input BulkActiveResultsInput {

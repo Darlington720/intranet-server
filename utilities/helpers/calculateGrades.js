@@ -36,6 +36,9 @@ function calculateGrades(records, entry_acc_yr) {
       (sum, rec) => sum + parseFloat(rec.credit_units),
       0
     );
+
+    // console.log("groupRecords", groupRecords);
+
     const semesterWeightedScore = groupRecords.reduce(
       (sum, rec) =>
         sum + parseFloat(rec.grade_point) * parseFloat(rec.credit_units),
@@ -44,6 +47,11 @@ function calculateGrades(records, entry_acc_yr) {
 
     // GPA for this group
     const GPA = semesterWeightedScore / semesterCreditUnits;
+    // console.log("semesterWeightedScore", {
+    //   semesterWeightedScore,
+    //   semesterCreditUnits,
+    // });
+    // console.log("gpa", GPA);
 
     // Update cumulative values
     cumulativeCreditUnits += semesterCreditUnits;
@@ -60,8 +68,10 @@ function calculateGrades(records, entry_acc_yr) {
     groupRecords.forEach((record) => {
       results.push({
         ...record,
-        exam:  record.exam ? parseFloat(record.exam.toFixed(1)) : record.exam,       // Round to 1 decimal place
-        final_mark: record.final_mark ?  Math.round(record.final_mark) : record.final_mark, 
+        exam: record.exam ? parseFloat(record.exam.toFixed(1)) : record.exam, // Round to 1 decimal place
+        final_mark: record.final_mark
+          ? Math.round(record.final_mark)
+          : record.final_mark,
         yrsem: groupKey,
         TCU: semesterCreditUnits,
         CTWS: cumulativeWeightedScore,
@@ -69,11 +79,8 @@ function calculateGrades(records, entry_acc_yr) {
         GPA: GPA.toFixed(2),
         CGPA: (cumulativeWeightedScore / cumulativeCreditUnits).toFixed(2),
         acc_yr_title: entry_acc_yr ? acc_yr : record.acc_yr_title, // Add calculated academic year
-        remarks: record.grade == "F"
-          ? "RTK"
-          : record.remarks 
-          ? record.remarks
-          : "NP",
+        remarks:
+          record.grade == "F" ? "RTK" : record.remarks ? record.remarks : "NP",
       });
     });
   }
