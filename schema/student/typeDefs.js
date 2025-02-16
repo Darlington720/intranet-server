@@ -135,34 +135,6 @@ const studentTypeDefs = `#graphql
     }
 
     type Mutation {
-        registerApplicant(
-            surname: String!,
-            other_names: String!,
-            email: String!,
-            phone_no: String!,
-            nationality_id: String!,
-            date_of_birth: String!,
-            gender: String!,
-        ): Applicant
-        verifyOTP(user_id: String!, otp_code: String!): Applicant
-        resendOTP(user_id: String!): ResponseMessage
-        setApplicantPassword(user_id: String!, password: String!): Applicant
-        applicantLogin(mode: String!, user_id: String!, password: String!): Applicant
-        changeApplicantPassword(user_id: String!, old_password: String!, new_password: String!): ResponseMessage
-        saveApplicantBioData(
-            application_id: ID,
-            applicant_id: String!,
-            form_no: String,
-            admissions_id: String!,
-            salutation: String!,
-            district_of_birth: String!,
-            district_of_origin: String!,
-            religion: String!,
-            marital_status: String!,
-            nin: String,
-            place_of_residence: String!,
-            completed_form_sections: String!
-        ): ResponseMessage
         saveNewStudent(payload: newStdInput): ResponseMessage
         uploadStudents(payload: [uploadStdInput]!): ResponseMessage
         uploadStudentsV2(payload: [uploadStdV2]!): ResponseMessage

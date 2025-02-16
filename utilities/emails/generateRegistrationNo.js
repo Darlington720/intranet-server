@@ -2,7 +2,7 @@ import { GraphQLError } from "graphql";
 
 let currentYear = new Date().getFullYear(); // Initialize the current year
 
-function generateRegNo({ intake, course_code, level, study_time }) {
+function generateRegNo({ intake, course_code, level, study_time, stdno }) {
   // first check the last generated number
   try {
     let uniqueIdLength = 6;
@@ -22,11 +22,14 @@ function generateRegNo({ intake, course_code, level, study_time }) {
     const studyTime = study_time.toUpperCase();
 
     // Generate a numeric unique identifier
-    const numericUniqueId = Math.floor(
-      Math.random() * Math.pow(10, uniqueIdLength)
-    )
-      .toString()
-      .padStart(uniqueIdLength, "0");
+    // const numericUniqueId = Math.floor(
+    //   Math.random() * Math.pow(10, uniqueIdLength)
+    // )
+    //   .toString()
+    //   .padStart(uniqueIdLength, "0");
+
+    // This should be the last five digits of the student number
+    let numericUniqueId = stdno.slice(-5);
 
     let studyTimeAbrev;
     switch (studyTime) {

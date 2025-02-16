@@ -1,6 +1,10 @@
 import { GraphQLError } from "graphql";
 import jwt from "jsonwebtoken";
-import { PORTAL_PRIVATE_KEY, PRIVATE_KEY } from "../config/config.js";
+import {
+  APPLICANT_PRIVATE_KEY,
+  PORTAL_PRIVATE_KEY,
+  PRIVATE_KEY,
+} from "../config/config.js";
 import { getUserLastLoginDetails } from "../schema/user/resolvers.js";
 import bcrypt from "bcrypt";
 
@@ -18,6 +22,8 @@ const authenticateUser = async ({ req }) => {
   let secretKey;
   if (portalType === "student") {
     secretKey = PORTAL_PRIVATE_KEY;
+  } else if (portalType == "applicant") {
+    secretKey = APPLICANT_PRIVATE_KEY;
   } else {
     secretKey = PRIVATE_KEY;
   }
@@ -38,7 +44,7 @@ const authenticateUser = async ({ req }) => {
     });
   }
 
-  if (portalType == "student") {
+  if (portalType == "student" || portalType == "applicant") {
     req.user = decoded;
     return;
   }

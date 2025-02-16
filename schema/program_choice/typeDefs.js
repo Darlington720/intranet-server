@@ -26,9 +26,6 @@ const ProgramChoiceTypeDefs = `#graphql
         study_time_title: String,
     }
 
-    
-
-
     type Query {
         program_choices: [ProgramChoice]
     }
@@ -36,11 +33,9 @@ const ProgramChoiceTypeDefs = `#graphql
     type Mutation {
         saveProgramChoices(
             program_choices: [ProgChoiceInput]!,
-            applicant_id: String!,
             form_no: String,
             admissions_id: String!,
-            completed_form_sections: String!
-        ): ResponseMessage
+        ): ApplicationResponse
     }
 
     input ProgChoiceInput {

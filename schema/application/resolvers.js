@@ -18,6 +18,10 @@ import generateStdno from "../../utilities/generateStdno.js";
 import generateRegNo from "../../utilities/emails/generateRegistrationNo.js";
 import saveData from "../../utilities/db/saveData.js";
 import sendEmail from "../../utilities/emails/admission-mail.js";
+import { PubSub } from "graphql-subscriptions";
+
+const pubsub = new PubSub();
+const UPLOAD_PROGRESS = "UPLOAD_PROGRESS";
 
 export const getApplicationForms = async ({
   form_no,
@@ -29,6 +33,7 @@ export const getApplicationForms = async ({
   campus_id,
   id,
   admitted_stds,
+  application_details,
 }) => {
   try {
     let where = "";
@@ -55,6 +60,10 @@ export const getApplicationForms = async ({
     if (form_no) {
       where += " AND applications.form_no = ?";
       values.push(form_no);
+    } else {
+      if (application_details) {
+        where += " AND applications.form_no IS NULL";
+      }
     }
 
     if (status) {
@@ -93,7 +102,6 @@ export const getApplicationForms = async ({
       LEFT JOIN study_times ON students.study_time_id = study_times.id
       LEFT JOIN intakes ON students.intake_id = intakes.id
       `;
-
       extra_select +=
         "students.*, campuses.campus_title, study_times.study_time_title, intakes.intake_title, students.creation_date as admitted_on, students.id as std_id, ";
 
@@ -264,6 +272,21 @@ const applicationResolvers = {
           campus_id,
         });
 
+        // console.log("_applications", _applications);
+
+        return _applications;
+      } catch (error) {
+        throw new GraphQLError(error.message);
+      }
+    },
+    my_applications: async (parent, args, context) => {
+      const applicant_id = context.req.user.applicant_id;
+
+      try {
+        const _applications = await getApplicationForms({
+          applicant_id,
+        });
+
         return _applications;
       } catch (error) {
         throw new GraphQLError(error.message);
@@ -278,6 +301,25 @@ const applicationResolvers = {
           admissions_id,
           applicant_id,
           form_no,
+          application_details: true,
+        });
+
+        return application[0];
+      } catch (error) {
+        throw new GraphQLError(error.message);
+      }
+    },
+
+    application_details: async (parent, args, context) => {
+      const applicant_id = context.req.user.applicant_id;
+      const { running_admissions_id, form_no } = args;
+
+      try {
+        const application = await getApplicationForms({
+          running_admissions_id,
+          applicant_id,
+          form_no,
+          application_details: true,
         });
 
         return application[0];
@@ -333,6 +375,8 @@ const applicationResolvers = {
         let values4 = [applicant_id];
 
         const [results4, fields4] = await db.execute(sql4, values4);
+
+        // console.log("applicant", values4);
 
         return results4[0];
       } catch (error) {
@@ -439,14 +483,17 @@ const applicationResolvers = {
         throw new GraphQLError(error.message);
       }
     },
-    running_admissions: async (parent, args) => {
+    running_admissions: async (parent, args, context) => {
       const admissions_id = parent.admissions_id;
 
-      // console.log(form_no);
       try {
         const running_admissions = await getAllRunningAdmissions({
           id: admissions_id,
+          // applicant_id,
         });
+
+        // console.log("running admissions", running_admissions);
+
         return running_admissions[0];
       } catch (error) {
         throw new GraphQLError(error.message);
@@ -496,150 +543,281 @@ const applicationResolvers = {
   },
 
   Mutation: {
-    admit_students: async (parent, args) => {
-      const { applicants, admitted_by } = args;
-      // console.log("the args", args);
-      let error = false;
+    admit_students: async (parent, args, context) => {
+      const user_id = context.req.user.id;
+      const { applicants } = args;
+      let connection = await db.getConnection();
+
       try {
-        // const admit = await applicants.map(async (applicant) => {
-        for (const applicant of applicants) {
-          const { application_id, prog_choice_id, std_id } = applicant;
+        const totalRecords = applicants.length;
+        let uploaded = 0;
 
-          if (!std_id) {
-            // the application
-            const _application = await getApplicationForms({
-              id: application_id,
+        await connection.beginTransaction();
+
+        for (const record of applicants) {
+          const {
+            application_id,
+            applicant_id,
+            course_id,
+            campus_id,
+            study_time_id,
+            entry_yr,
+          } = record;
+
+          const [_application] = await getApplicationForms({
+            id: application_id,
+          });
+          if (!_application) throw new GraphQLError("Application not found!");
+          if (_application.isAdmitted)
+            throw new GraphQLError("Student is already admitted");
+
+          const [_program_choices] = await getProgramChoices({
+            applicant_id,
+            course_id,
+          });
+          const [admissions] = await getAllRunningAdmissions({
+            id: _application.admissions_id,
+          });
+
+          const stdno = await generateStdno();
+
+          const regno = generateRegNo({
+            intake: admissions.intake_title,
+            course_code: _program_choices.course_code,
+            level: _program_choices.level_code,
+            study_time: _program_choices.study_time_title,
+            stdno,
+          });
+
+          const course_version = await getLatestCourseVersion(course_id);
+
+          const data1 = {
+            student_no: stdno,
+            registration_no: regno,
+            applicant_id: _application.applicant_id,
+            application_id,
+            form_no: _application.form_no,
+            // program_choice_id: prog_choice_id,
+            study_time_id: study_time_id,
+            entry_study_yr: entry_yr,
+            entry_acc_yr: admissions.acc_yr_id,
+            course_id: course_id,
+            course_version_id: course_version ? course_version.id : "",
+            intake_id: admissions.intake_id,
+            campus_id: campus_id,
+            added_by: user_id,
+            verified_by: user_id,
+            creation_date: new Date(),
+          };
+
+          const save_id = await saveData({
+            table: "students",
+            data: data1,
+            id: null,
+          });
+
+          const data2 = {
+            std_id: save_id,
+            is_admitted: true,
+            admitted_by: user_id,
+            is_verified: true,
+            admitted_choice: _program_choices.choice_no,
+          };
+
+          await saveData({
+            table: "applications",
+            data: data2,
+            id: application_id,
+          });
+
+          uploaded++;
+          const percentage = Math.floor((uploaded / totalRecords) * 100);
+
+          // ✅ Optimize pubsub: Only publish every 10% interval
+          if (percentage % 10 === 0 || uploaded === totalRecords) {
+            pubsub.publish(UPLOAD_PROGRESS, {
+              uploadProgress: { progress: percentage },
             });
-
-            // the program choice
-            const _program_choices = await getProgramChoices({
-              id: prog_choice_id,
-            });
-
-            // console.log({
-            //   // _application,
-            //   _program_choices,
-            // });
-
-            if (!_application[0] || !_program_choices[0]) {
-              error = true;
-            }
-
-            // the admission setup
-            const admissions = await getAllRunningAdmissions({
-              id: _application[0].admissions_id,
-            });
-
-            // student number
-            const stdno = await generateStdno();
-
-            // registration number
-            // 2021/FEB/BCS/B227811/DAY
-            const regno = generateRegNo({
-              intake: admissions[0].intake_title,
-              course_code: _program_choices[0].course_code,
-              level: _program_choices[0].level_code,
-              study_time: _program_choices[0].study_time_title,
-            });
-
-            // we need to know the latest version of the course admitted to student
-            const course_version = await getLatestCourseVersion(
-              _program_choices[0].course_id
-            );
-
-            // console.log({
-            //   // _application,
-            //   course_version,
-            // });
-
-            // let insert in the students table
-            const data1 = {
-              student_no: stdno,
-              registration_no: regno,
-              applicant_id: _application[0].applicant_id,
-              application_id,
-              form_no: _application[0].form_no,
-              program_choice_id: prog_choice_id,
-              study_time_id: _program_choices[0].study_time_id,
-              entry_study_yr: _program_choices[0].entry_yr,
-              entry_acc_yr: admissions[0].acc_yr_id,
-              course_id: _program_choices[0].course_id,
-              course_version_id: course_version ? course_version.id : "",
-              intake_id: admissions[0].intake_id,
-              campus_id: _program_choices[0].campus_id,
-              added_by: admitted_by,
-              verified_by: admitted_by,
-              creation_date: new Date(),
-            };
-
-            // console.log({
-            //   regno,
-            //   stdno,
-            //   data1,
-            //   // admissions,
-            //   // _applicant,
-            //   // _application,
-            //   // _program_choices,
-            // });
-
-            // admit
-            const save_id = await saveData({
-              table: "students",
-              data: data1,
-              id: std_id,
-            });
-
-            // update applications
-            const data2 = {
-              std_id: save_id,
-              is_admitted: 1, // has been admitted
-              admitted_by: admitted_by,
-              is_verified: 1,
-            };
-
-            await saveData({
-              table: "applications",
-              data: data2,
-              id: application_id,
-            });
-
-            // send an email to whoever thats admitted
-            const _applicant = await getApplicant(_application[0].applicant_id);
-            // awaiting this might unnecessarily delay the response
-            try {
-              sendEmail({
-                to: _applicant.email,
-                subject: "NKUMBA UNIVERSITY ADMISSIONS",
-                message: `Congratulations!, You have been successfully admitted to the programme of study leading to the award of: ${_program_choices[0].course_title} \n
-                Go https://admissions.nkumbauniversity.ac.ug/ to view the admission details
-                `,
-              });
-            } catch (error) {
-              throw new GraphQLError("SERVER_ERROR");
-            }
           }
         }
-        // await Promise.all(admit);
 
-        // am ignoring the ones that are already admitted
+        await connection.commit();
+        connection.release();
 
-        if (error) {
-          throw new GraphQLError("SERVER_ERROR");
+        for (const record of applicants) {
+          const [_application] = await getApplicationForms({
+            id: record.application_id,
+          });
+          const _applicant = await getApplicant(_application.applicant_id);
+          const [_program_choices] = await getProgramChoices({
+            course_id: record.course_id,
+            applicant_id: record.applicant_id,
+          });
+
+          sendEmail({
+            to: _applicant.email,
+            subject: "NKUMBA UNIVERSITY ADMISSIONS",
+            message: `Congratulations!, You have been successfully admitted to the programme of study leading to the award of: ${_program_choices.course_title} \n
+              Go https://admissions.nkumbauniversity.ac.ug/ to view the admission details.`,
+          }).catch((error) => console.error("Email sending failed:", error));
         }
 
+        // return { progress: 100 };
         return {
           success: "true",
-          message: "Students admitted Successfully",
+          message: "Students admitted successfully",
         };
       } catch (error) {
-        throw new GraphQLError(error.message, {
-          extensions: {
-            code: "INTERNAL_SERVER_ERROR",
-            http: { status: 501 },
-          },
-        });
+        await connection.rollback();
+        connection.release();
+        throw new GraphQLError(error.message);
       }
     },
+    // _admit_students: async (parent, args, context) => {
+    //   const user_id = context.req.user.id;
+    //   const { applicants } = args;
+    //   // console.log("the args", args);
+    //   let error = false;
+    //   try {
+    //     // const admit = await applicants.map(async (applicant) => {
+    //     for (const applicant of applicants) {
+    //       const { application_id, prog_choice_id, std_id } = applicant;
+
+    //       if (!std_id) {
+    //         // the application
+    //         const _application = await getApplicationForms({
+    //           id: application_id,
+    //         });
+
+    //         // the program choice
+    //         const _program_choices = await getProgramChoices({
+    //           id: prog_choice_id,
+    //         });
+
+    //         // console.log({
+    //         //   // _application,
+    //         //   _program_choices,
+    //         // });
+
+    //         if (!_application[0] || !_program_choices[0]) {
+    //           error = true;
+    //         }
+
+    //         // the admission setup
+    //         const admissions = await getAllRunningAdmissions({
+    //           id: _application[0].admissions_id,
+    //         });
+
+    //         // student number
+    //         const stdno = await generateStdno();
+
+    //         // registration number
+    //         // 2021/FEB/BCS/B227811/DAY
+    //         const regno = generateRegNo({
+    //           intake: admissions[0].intake_title,
+    //           course_code: _program_choices[0].course_code,
+    //           level: _program_choices[0].level_code,
+    //           study_time: _program_choices[0].study_time_title,
+    //         });
+
+    //         // we need to know the latest version of the course admitted to student
+    //         const course_version = await getLatestCourseVersion(
+    //           _program_choices[0].course_id
+    //         );
+
+    //         // console.log({
+    //         //   // _application,
+    //         //   course_version,
+    //         // });
+
+    //         // let insert in the students table
+    //         const data1 = {
+    //           student_no: stdno,
+    //           registration_no: regno,
+    //           applicant_id: _application[0].applicant_id,
+    //           application_id,
+    //           form_no: _application[0].form_no,
+    //           program_choice_id: prog_choice_id,
+    //           study_time_id: _program_choices[0].study_time_id,
+    //           entry_study_yr: _program_choices[0].entry_yr,
+    //           entry_acc_yr: admissions[0].acc_yr_id,
+    //           course_id: _program_choices[0].course_id,
+    //           course_version_id: course_version ? course_version.id : "",
+    //           intake_id: admissions[0].intake_id,
+    //           campus_id: _program_choices[0].campus_id,
+    //           added_by: admitted_by,
+    //           verified_by: admitted_by,
+    //           creation_date: new Date(),
+    //         };
+
+    //         // console.log({
+    //         //   regno,
+    //         //   stdno,
+    //         //   data1,
+    //         //   // admissions,
+    //         //   // _applicant,
+    //         //   // _application,
+    //         //   // _program_choices,
+    //         // });
+
+    //         // admit
+    //         const save_id = await saveData({
+    //           table: "students",
+    //           data: data1,
+    //           id: std_id,
+    //         });
+
+    //         // update applications
+    //         const data2 = {
+    //           std_id: save_id,
+    //           is_admitted: 1, // has been admitted
+    //           admitted_by: admitted_by,
+    //           is_verified: 1,
+    //         };
+
+    //         await saveData({
+    //           table: "applications",
+    //           data: data2,
+    //           id: application_id,
+    //         });
+
+    //         // send an email to whoever thats admitted
+    //         const _applicant = await getApplicant(_application[0].applicant_id);
+    //         // awaiting this might unnecessarily delay the response
+    //         try {
+    //           sendEmail({
+    //             to: _applicant.email,
+    //             subject: "NKUMBA UNIVERSITY ADMISSIONS",
+    //             message: `Congratulations!, You have been successfully admitted to the programme of study leading to the award of: ${_program_choices[0].course_title} \n
+    //             Go https://admissions.nkumbauniversity.ac.ug/ to view the admission details
+    //             `,
+    //           });
+    //         } catch (error) {
+    //           throw new GraphQLError("SERVER_ERROR");
+    //         }
+    //       }
+    //     }
+    //     // await Promise.all(admit);
+
+    //     // am ignoring the ones that are already admitted
+
+    //     if (error) {
+    //       throw new GraphQLError("SERVER_ERROR");
+    //     }
+
+    //     return {
+    //       success: "true",
+    //       message: "Students admitted Successfully",
+    //     };
+    //   } catch (error) {
+    //     throw new GraphQLError(error.message, {
+    //       extensions: {
+    //         code: "INTERNAL_SERVER_ERROR",
+    //         http: { status: 501 },
+    //       },
+    //     });
+    //   }
+    // },
     push_to_std_info_center: async (parent, args) => {
       // console.log("args", args);
       const { std_ids, pushed_by } = args;
@@ -680,6 +858,56 @@ const applicationResolvers = {
           },
         });
       }
+    },
+    submitApplication: async (parent, args, context) => {
+      const applicant_id = context.req.user.applicant_id;
+
+      const { admissions_id, form_no } = args;
+
+      try {
+        // check if all sections are complete
+
+        const _application = await getApplicationForms({
+          running_admissions_id: admissions_id,
+          applicant_id,
+          form_no: form_no,
+          application_details: true,
+        });
+
+        if (!_application || _application.length === 0) {
+          throw new GraphQLError("Application form not found.");
+        }
+
+        const data = {
+          is_completed: true,
+          submission_date: new Date(),
+          status: "completed",
+        };
+
+        const save_id = await saveData({
+          table: "applications",
+          data,
+          id: _application[0].id,
+        });
+
+        const application = await getApplicationForms({
+          id: save_id,
+        });
+
+        return {
+          success: true,
+          message: "YOUR APPLICATION FORM HAS BEEN SUBMITTED SUCCESSFULLY",
+          result: application[0],
+        };
+      } catch (error) {
+        throw new GraphQLError(error.message);
+      }
+    },
+  },
+
+  Subscription: {
+    uploadProgress: {
+      subscribe: () => pubsub.asyncIterableIterator([UPLOAD_PROGRESS]),
     },
   },
 };

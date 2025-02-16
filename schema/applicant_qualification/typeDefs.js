@@ -21,14 +21,12 @@ const applicantQualificationTypeDefs = `#graphql
 
     type Mutation {
         saveQualifications(
-            has_other_qualifications: Int!,
+            has_other_qualifications: Boolean!,
             qualifications: [QualificationInput],
-            applicant_id: String!,
             form_no: String,
             admissions_id: String!,
             remove_ids: [String]!
-            completed_form_sections: String!
-        ): ResponseMessage
+        ): ApplicationResponse
     }
 
     input QualificationInput {

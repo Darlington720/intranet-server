@@ -2,6 +2,7 @@ import { GraphQLError } from "graphql";
 import { tredumoDB, db, database } from "../../config/config.js";
 import generateUniqueID from "../../utilities/generateUniqueID.js";
 import getRunningAdmissions from "../../utilities/checkSchemeStatus.js";
+import { getAllRunningAdmissions } from "../running_admissions/resolvers.js";
 
 const getAllAdmissionLevels = async () => {
   try {
@@ -29,15 +30,30 @@ const admissionLevelResolvers = {
     },
   },
   AdmissionLevel: {
-    running_admissions: async (parent, args) => {
+    running_admissions: async (parent, args, context) => {
       try {
-        let sql = `SELECT * FROM running_admissions WHERE admission_level_id = ? AND deleted = 0 ORDER BY end_date ASC`;
-        let values = [parent.id];
+        // let sql = `SELECT * FROM running_admissions WHERE admission_level_id = ? AND deleted = 0 ORDER BY end_date ASC`;
+        // let values = [parent.id];
 
-        const [results, fields] = await db.execute(sql, values);
+        // const [results, fields] = await db.execute(sql, values);
 
-        const runningAdmissions = getRunningAdmissions(results);
-        // console.log("results", runningAdmissions);
+        // const runningAdmissions = getRunningAdmissions(results);
+        // // console.log("results", runningAdmissions);
+        // return runningAdmissions;
+
+        const applicant_id = context.req.user.applicant_id;
+
+        const result = await getAllRunningAdmissions({
+          admission_level_id: parent.id,
+        });
+
+        // console.log("result", result);
+
+        const runningAdmissions = await getRunningAdmissions(
+          result,
+          applicant_id
+        );
+
         return runningAdmissions;
       } catch (error) {
         // console.log("error", error);

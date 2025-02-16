@@ -19,7 +19,6 @@ const nextOfKinTypeDefs = `#graphql
     type Mutation {
         saveNextOfKin(
             id: ID, 
-            applicant_id: String!,
             form_no: String!,
             admissions_id: String!, # running_admissions_id
             full_name: String!,
@@ -27,8 +26,8 @@ const nextOfKinTypeDefs = `#graphql
             address: String!,
             phone_no: String!,
             relation: String!,
-            completed_form_sections: String!
-            ): ResponseMessage
+            ): ApplicationResponse
+
     }
 `;
 

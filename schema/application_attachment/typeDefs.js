@@ -17,15 +17,13 @@ const applicationAttachmentTypeDefs = `#graphql
     }
 
     type Mutation {
-        saveApplicationAttachment(
+        saveApplicationAttachments(
             attachments: [AttachmentInput]!
             remove_ids: [String],
-            has_attachments: Int!,
-            applicant_id: String!,
+            has_attachments: Boolean!,
             form_no: String,
             admissions_id: String!,
-            completed_form_sections: String!
-        ): ResponseMessage
+        ): ApplicationResponse
     }
 
     input AttachmentInput {

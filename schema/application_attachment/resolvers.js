@@ -12,6 +12,7 @@ import {
   updateApplicationCompletedSections,
 } from "../application/resolvers.js";
 import saveData from "../../utilities/db/saveData.js";
+import { checkApplicantData } from "../applicant/resolvers.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -82,44 +83,18 @@ const ApplicationAttachmeentResolvers = {
     },
   },
   Mutation: {
-    saveApplicationAttachment: async (_, args) => {
+    saveApplicationAttachments: async (_, args, context) => {
+      const applicant_id = context.req.user.applicant_id;
       try {
         const {
           remove_ids,
-          applicant_id,
           admissions_id,
           attachments,
           has_attachments,
           form_no,
-          completed_form_sections,
         } = args;
-        // console.log("args", args);
 
-        let applicationId = "";
-
-        if (!form_no) {
-          throw new GraphQLError("Please fill in the Bio Data section");
-        }
-
-        const existingApplicationForm = await getApplicationForms({
-          applicant_id,
-          admissions_id,
-        });
-
-        // console.log("existing application form", existingApplicationForm[0]);
-
-        if (!existingApplicationForm[0]) {
-          // now, lets create the form for the applicant
-          applicationId = await createApplication(
-            applicant_id,
-            admissions_id
-            // completed_form_sections
-          );
-
-          // console.log("existing application form---", applicationId);
-        } else {
-          applicationId = existingApplicationForm[0].id;
-        }
+        const applicantData = await checkApplicantData(applicant_id, args);
 
         if (has_attachments) {
           // now lets work on the actual results
@@ -129,11 +104,11 @@ const ApplicationAttachmeentResolvers = {
             const sql = `DELETE FROM application_attachments WHERE id IN (${idsString})`;
 
             // Execute the SQL query
-            const [results, fields] = await db.execute(sql);
+            await db.execute(sql);
           }
 
           // save the attachments
-          const saveAttachments = await attachments.map(async (attachment) => {
+          for (const attachment of attachments) {
             // console.log(attachment);
             let newFilename;
 
@@ -175,8 +150,8 @@ const ApplicationAttachmeentResolvers = {
 
             const data = {
               applicant_id,
-              form_no,
-              admissions_id,
+              form_no: applicantData.form_no,
+              admissions_id: applicantData.admissions_id,
               file_name: attachment.file_name,
               description: attachment.description,
               file_id: newFilename,
@@ -189,28 +164,38 @@ const ApplicationAttachmeentResolvers = {
               id: attachment.id,
               data,
             });
-          });
-
-          await Promise.all(saveAttachments);
+          }
         }
 
-        await saveData({
-          table: "applications",
-          id: applicationId,
-          data: {
-            has_attachments,
-          },
+        // lets now update the applications record to notify that the applicant is done with this section
+        const _application = await getApplicationForms({
+          running_admissions_id: applicantData.admissions_id,
+          applicant_id,
+          form_no: applicantData.form_no,
+          application_details: true,
         });
 
-        // just update the form section ids
-        await updateApplicationCompletedSections(
-          applicationId,
-          completed_form_sections
-        );
+        if (!_application || _application.length === 0) {
+          throw new GraphQLError("Application form not found.");
+        }
+
+        const save_id = await saveData({
+          table: "applications",
+          data: {
+            has_attachments,
+            attachments_section_complete: true,
+          },
+          id: _application[0].id,
+        });
+
+        const application = await getApplicationForms({
+          id: save_id,
+        });
 
         return {
-          success: "true",
-          message: "Attachments saved Successfully",
+          success: true,
+          message: "Attachments Saved Successfully",
+          result: application[0],
         };
       } catch (error) {
         console.log(error.message);

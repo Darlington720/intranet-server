@@ -29,6 +29,7 @@ const RunningAdmissionsTypeDefs = `#graphql
     scheme: Scheme,
     admission_level: AdmissionLevel,
     acc_yr: AcademicYear,
+    form_no: String,
    }
 
     type Query {
@@ -55,7 +56,7 @@ const RunningAdmissionsTypeDefs = `#graphql
             national_admission_fees: String,
             east_african_admission_fees: String,
             international_admission_fees: String,
-            added_by: String!, 
+            # added_by: String!, 
         ): ResponseMessage
         deleteRunningAdmission(running_admission_id: String!): ResponseMessage
     }

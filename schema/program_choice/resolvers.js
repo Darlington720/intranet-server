@@ -8,6 +8,7 @@ import {
 } from "../application/resolvers.js";
 import { getCourseByID } from "../course/resolvers.js";
 import saveData from "../../utilities/db/saveData.js";
+import { checkApplicantData } from "../applicant/resolvers.js";
 
 export const getProgramChoices = async ({
   applicant_id,
@@ -15,6 +16,7 @@ export const getProgramChoices = async ({
   form_no,
   choice_id,
   id,
+  course_id,
 }) => {
   try {
     let where = "";
@@ -43,6 +45,11 @@ export const getProgramChoices = async ({
     if (choice_id) {
       where += " AND program_choices.id = ?";
       values.push(choice_id);
+    }
+
+    if (course_id) {
+      where += " AND program_choices.course_id = ?";
+      values.push(course_id);
     }
 
     let sql = `SELECT 
@@ -88,161 +95,83 @@ const progChoiceResolvers = {
     },
   },
   Mutation: {
-    saveProgramChoices: async (parent, args) => {
-      const today = new Date();
-      const {
-        program_choices,
-        applicant_id,
-        form_no,
-        admissions_id,
-        completed_form_sections,
-      } = args;
+    saveProgramChoices: async (parent, args, context) => {
+      const applicant_id = context.req.user.applicant_id;
 
-      // console.log("the grgs", args);
-
-      let message = "";
+      let connection = await db.getConnection();
 
       try {
-        const insertProgramChoices = await program_choices.map(
-          async (prog_choice) => {
-            const {
-              choice_id,
-              choice_no,
-              course_id,
-              campus_id,
-              study_time_id,
-              entry_yr,
-            } = prog_choice;
+        await connection.beginTransaction();
 
-            // if (choice_id) {
-            //   // but first check if the choice_id is valid
-            //   const existingProgChoice = await getProgramChoices({
-            //     choice_id,
-            //   });
+        const applicantData = await checkApplicantData(applicant_id, args);
 
-            //   // console.log(existingProgChoice);
+        for (const prog_choice of applicantData.program_choices) {
+          const {
+            choice_id,
+            choice_no,
+            course_id,
+            campus_id,
+            study_time_id,
+            entry_yr,
+          } = prog_choice;
 
-            //   if (!existingProgChoice[0]) {
-            //     throw new GraphQLError("Inalid Choice id!!!");
-            //   }
-
-            //   // update
-            //   let sql2 = `UPDATE program_choices SET
-            //     applicant_id = ?,
-            //     form_no = ?,
-            //     admissions_id = ?,
-            //     choice_no = ?,
-            //     course_id = ?,
-            //     campus_id = ?,
-            //     study_time_id = ?,
-            //     entry_yr = ?,
-            //     updated_at = ?
-            //     WHERE id = ?`;
-
-            //   let values2 = [
-            //     applicant_id,
-            //     form_no,
-            //     admissions_id,
-            //     choice_no,
-            //     course_id,
-            //     campus_id,
-            //     study_time_id,
-            //     entry_yr,
-            //     today,
-            //     choice_id,
-            //   ];
-
-            //   const [results2, fields2] = await db.execute(sql2, values2);
-            // } else {
-            //   // first, we do not any repeatition in the choices chosen for a specified running admission
-            //   const existingProgChoice = await getProgramChoices({
-            //     applicant_id,
-            //     form_no,
-            //     admissions_id,
-            //   });
-
-            //   // console.log("existingProgChoice", existingProgChoice);
-
-            //   if (existingProgChoice[0]) {
-            //     return;
-            //   }
-
-            //   // lets now insert the program choices in the database
-            //   let sql = `INSERT INTO program_choices(
-            //   applicant_id,
-            //   form_no,
-            //   admissions_id,
-            //   choice_no,
-            //   course_id,
-            //   campus_id,
-            //   study_time_id,
-            //   entry_yr,
-            //   created_at
-            //   ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`;
-
-            //   let values = [
-            //     applicant_id,
-            //     form_no,
-            //     admissions_id,
-            //     choice_no,
-            //     course_id,
-            //     campus_id,
-            //     study_time_id,
-            //     entry_yr,
-            //     today,
-            //   ];
-
-            //   const [results, fields] = await db.execute(sql, values);
-            // }
-
-            const data = {
-              applicant_id,
-              form_no,
-              admissions_id,
-              choice_no,
-              course_id,
-              campus_id,
-              study_time_id,
-              entry_yr,
-            };
-
-            await saveData({
-              table: `program_choices`,
-              id: choice_id,
-              data,
-            });
-          }
-        );
-
-        await Promise.all(insertProgramChoices);
-
-        // lets see if the form is already created
-        const existingApplicationForm = await getApplicationForms({
-          form_no,
-        });
-
-        if (!existingApplicationForm[0]) {
-          // now, lets create the form for the applicant
-          await createApplication(
+          const data = {
             applicant_id,
-            admissions_id,
-            completed_form_sections
-          );
-        } else {
-          // if the application exists, just update the form section ids
-          await updateApplicationCompletedSections(
-            existingApplicationForm[0].id,
-            completed_form_sections
-          );
+            form_no: applicantData.form_no,
+            admissions_id: applicantData.admissions_id,
+            choice_no,
+            course_id,
+            campus_id,
+            study_time_id,
+            entry_yr,
+          };
+
+          await saveData({
+            table: `program_choices`,
+            id: choice_id,
+            data,
+          });
         }
 
+        // lets now update the applications record to notify that the applicant is done with this section
+
+        const _application = await getApplicationForms({
+          running_admissions_id: applicantData.admissions_id,
+          applicant_id,
+          form_no: applicantData.form_no,
+          application_details: true,
+        });
+
+        if (!_application || _application.length === 0) {
+          throw new GraphQLError("Application form not found.");
+        }
+
+        const save_id = await saveData({
+          table: "applications",
+          data: {
+            has_chosen_courses: true,
+          },
+          id: _application[0].id,
+        });
+
+        const application = await getApplicationForms({
+          id: save_id,
+        });
+
+        await connection.commit();
+
         return {
-          success: "true",
-          message: "Program Choices saved Successfully",
+          success: true,
+          message: "Program choices Saved Successfully",
+          result: application[0],
         };
       } catch (error) {
-        // console.log("error", error.message);
+        await connection.rollback();
         throw new GraphQLError(error.message);
+      } finally {
+        if (connection) {
+          connection.release();
+        }
       }
     },
   },

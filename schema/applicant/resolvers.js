@@ -1,10 +1,13 @@
-import { db } from "../../config/config.js";
+import { APPLICANT_PRIVATE_KEY, db } from "../../config/config.js";
 import { GraphQLError } from "graphql";
 import sendEmail from "../../utilities/emails/email-otp.js";
 import bcrypt from "bcrypt";
 import generateFormNumber from "../../utilities/generateApplicationFormNo.js";
 import { getAllRunningAdmissions } from "../running_admissions/resolvers.js";
 import saveData from "../../utilities/db/saveData.js";
+import jwt from "jsonwebtoken";
+import saveDataWithOutDuplicates from "../../utilities/db/saveDataWithOutDuplicates.js";
+import { getApplicationForms } from "../application/resolvers.js";
 
 export const getApplicant = async (applicant_id) => {
   try {
@@ -27,8 +30,15 @@ export const getApplicant = async (applicant_id) => {
   }
 };
 
-const getApplicantsSummary = async ({ acc_yr_id, scheme_id, intake_id }) => {
+const getApplicantsSummary = async ({
+  acc_yr_id,
+  scheme_id,
+  intake_id,
+  completed,
+  school_id,
+}) => {
   try {
+    let where = "";
     // first, i need the running admissions_id
     const running_admissions = await getAllRunningAdmissions({
       acc_yr_id,
@@ -45,28 +55,94 @@ const getApplicantsSummary = async ({ acc_yr_id, scheme_id, intake_id }) => {
     const running_admission_id = running_admissions[0].id;
     const choice_no = 1; // considering first choices only
 
-    let sql = `SELECT 
-      program_choices.admissions_id,
-      program_choices.course_id,
-      program_choices.campus_id,
-      COUNT(*) AS student_count,
-      campuses.campus_title,
-      courses.course_code, 
-      courses.course_title 
-      FROM program_choices 
-      LEFT JOIN courses ON program_choices.course_id = courses.id
-      LEFT JOIN campuses ON program_choices.campus_id = campuses.id
-      WHERE program_choices.deleted = 0 AND admissions_id = ? AND choice_no = ? 
-      GROUP BY course_code, campus_title
-      ORDER BY course_code DESC`;
     let values = [running_admission_id, choice_no];
 
-    const [results, fields] = await db.execute(sql, values);
+    if (completed) {
+      where += " AND a.is_completed = ?";
+      values.push(completed);
+    }
+
+    if (school_id && school_id !== "all") {
+      where += " AND cr.school_id = ?";
+      values.push(school_id);
+    }
+
+    // let sql = `SELECT
+    //   program_choices.admissions_id,
+    //   program_choices.course_id,
+    //   program_choices.campus_id,
+    //   COUNT(*) AS student_count,
+    //   campuses.campus_title,
+    //   courses.course_code,
+    //   courses.course_title
+    //   FROM program_choices
+    //   LEFT JOIN courses ON program_choices.course_id = courses.id
+    //   LEFT JOIN campuses ON program_choices.campus_id = campuses.id
+    //   WHERE program_choices.deleted = 0 AND admissions_id = ? AND choice_no = ?
+    //   GROUP BY course_code, campus_title`;
+
+    let sql = `
+    SELECT 
+    a.admissions_id,
+    pc.course_id,
+    pc.campus_id,
+    c.campus_title,
+    COUNT(*) AS student_count,
+    cr.course_code,
+    cr.course_title
+    FROM applications a
+    LEFT JOIN program_choices pc ON pc.form_no = a.form_no
+    LEFT JOIN courses cr ON pc.course_id = cr.id
+    LEFT JOIN campuses c ON pc.campus_id = c.id
+    WHERE pc.deleted = 0 AND a.admissions_id = ? AND pc.choice_no = ? ${where}
+    GROUP BY cr.course_code, c.campus_title;
+    `;
+
+    const [results] = await db.execute(sql, values);
     // console.log("results", results);
     return results;
     // return results;
   } catch (error) {
     // console.log("error----", error.message);
+    throw new GraphQLError(error.message);
+  }
+};
+
+export const checkApplicantData = async (applicant_id, applicantData) => {
+  try {
+    // Any section that is sent must first pass thru this middleware
+    // First, check if the applicant already exists
+
+    const applicant = await getApplicant(applicant_id);
+
+    if (!applicant) {
+      throw new GraphQLError("Invalid User ID!");
+    }
+
+    // now, we need the application form number
+    let form_no = applicantData.form_no;
+
+    if (!form_no) {
+      form_no = generateFormNumber();
+
+      const data = {
+        applicant_id,
+        form_no,
+        admissions_id: applicantData.admissions_id,
+        creation_date: new Date(),
+        status: "in_progress",
+      };
+
+      await saveData({
+        table: "applications",
+        data,
+        id: applicantData.form_no,
+        idColumn: "form_no",
+      });
+    }
+
+    return { ...applicantData, form_no };
+  } catch (error) {
     throw new GraphQLError(error.message);
   }
 };
@@ -79,15 +155,36 @@ const applicantResolvers = {
     },
     applicantsSammary: async (parent, args) => {
       try {
-        const { acc_yr_id, scheme_id, intake_id } = args;
+        const { acc_yr_id, scheme_id, intake_id, completed, school_id } = args;
 
         const summary = await getApplicantsSummary({
           acc_yr_id,
           scheme_id,
           intake_id,
+          completed,
+          school_id,
         });
 
         return summary;
+      } catch (error) {
+        throw new GraphQLError(error.message);
+      }
+    },
+    applicantProfile: async (parent, args, context) => {
+      const user_id = context.req.user.applicant_id;
+
+      try {
+        const applicant = await getApplicant(user_id);
+
+        if (!applicant) {
+          throw new GraphQLError("Invalid User!", {
+            extensions: {
+              http: { status: 400 },
+            },
+          });
+        }
+
+        return applicant;
       } catch (error) {
         throw new GraphQLError(error.message);
       }
@@ -129,12 +226,16 @@ const applicantResolvers = {
 
       // no repeatition of emails is allowed
       try {
-        let sql = `SELECT applicants.*, otps.id as otp_id FROM applicants
-        INNER JOIN otps ON otps.user_id = applicants.id
-        WHERE email = ? OR phone_no = ?`;
-        let values = [email, phone_no];
+        let sql = `
+        SELECT 
+          applicants.*, 
+          otps.id as otp_id 
+          FROM applicants
+          LEFT JOIN otps ON otps.user_id = applicants.id
+          WHERE email = ?`;
+        let values = [email];
 
-        const [results, fields] = await db.execute(sql, values);
+        const [results] = await db.execute(sql, values);
 
         // console.log("results", results);
 
@@ -180,56 +281,42 @@ const applicantResolvers = {
           id: results[0] ? results[0].otp_id : null,
         });
 
-        // insert the details in the database
-        // let sql2 = `INSERT INTO applicants (
-        //             surname,
-        //             other_names,
-        //             email,
-        //             phone_no,
-        //             nationality_id,
-        //             date_of_birth,
-        //             gender) VALUES (?, ?, ?, ?, ?, ?, ?)`;
-        // let values2 = [
-        //   surname,
-        //   other_names,
-        //   email,
-        //   phone_no,
-        //   nationality_id,
-        //   date_of_birth,
-        //   gender,
-        // ];
-
-        // const [results2, fields2] = await db.execute(sql2, values2);
-
-        // // insert the details in the database
-        // let sql4 = `INSERT INTO otps (
-        //     user_id,
-        //     otp_code,
-        //     expires_at
-        //     ) VALUES (?, ?, ?)`;
-        // let values4 = [results2.insertId, otp_code, expiresAt];
-
-        // const [results4, fields4] = await db.execute(sql4, values4);
-
         // now let's return the registered user
         const applicant = await getApplicant(save_id);
 
-        // console.log("results", results3);
-        return applicant; // the registered applicant
+        // return an access token
+        let token;
+
+        // Generate a token for an existing user
+        token = jwt.sign(
+          {
+            applicant_id: applicant.id,
+            email: applicant.email,
+            phone_no: applicant.phone_no,
+            verify_email: true,
+            set_pwd: true,
+          },
+          APPLICANT_PRIVATE_KEY,
+          { expiresIn: "1d" }
+        );
+
+        return { token };
       } catch (error) {
         // console.log("error", error);
         throw new GraphQLError(error.message);
       }
     },
-    verifyOTP: async (parent, args) => {
-      const { user_id, otp_code } = args;
+    verifyOTP: async (parent, args, context) => {
+      const user_id = context.req.user.applicant_id;
+
+      const { otp_code } = args;
 
       // check if otp is valid
       try {
         let sql = `SELECT * FROM otps WHERE user_id = ? AND otp_code = ? ORDER BY id DESC LIMIT 1`;
         let values = [user_id, otp_code];
 
-        const [results, fields] = await db.execute(sql, values);
+        const [results] = await db.execute(sql, values);
 
         if (!results[0]) {
           throw new GraphQLError("Invalid OTP!", {
@@ -255,21 +342,19 @@ const applicantResolvers = {
         let sql2 = `UPDATE applicants SET is_verified = ? WHERE id = ?`;
         let values2 = [1, user_id];
 
-        const [results2, fields2] = await db.execute(sql2, values2);
+        await db.execute(sql2, values2);
 
-        // return the verified applicant
-        const applicant = await getApplicant(user_id);
-
-        // console.log("applicant", applicant);
-
-        return applicant;
+        return {
+          success: "true",
+          message: "OTP verified successfully!",
+        };
       } catch (error) {
         console.log("error", error);
         throw new GraphQLError(error.message);
       }
     },
-    resendOTP: async (parent, args) => {
-      const { user_id } = args;
+    resendOTP: async (parent, args, context) => {
+      const user_id = context.req.user.applicant_id;
 
       //we need to send an otp to the applicant's email and phone number
       const otp_code = Math.floor(100000 + Math.random() * 900000);
@@ -295,7 +380,7 @@ const applicantResolvers = {
             ) VALUES (?, ?, ?)`;
         let values4 = [user_id, otp_code, expiresAt];
 
-        const [results4, fields4] = await db.execute(sql4, values4);
+        await db.execute(sql4, values4);
 
         await sendEmail(applicant.email, otp_code);
 
@@ -308,8 +393,9 @@ const applicantResolvers = {
         throw new GraphQLError(error.message);
       }
     },
-    setApplicantPassword: async (parent, args) => {
-      const { user_id, password } = args;
+    setApplicantPassword: async (parent, args, context) => {
+      const user_id = context.req.user.applicant_id;
+      const { password } = args;
       const today = new Date();
       try {
         // first, the user must be a valid user
@@ -341,95 +427,65 @@ const applicantResolvers = {
         let sql2 = `UPDATE applicants SET has_pwd = ? WHERE id = ?`;
         let values2 = [1, user_id];
 
-        const [results2, fields2] = await db.execute(sql2, values2);
+        await db.execute(sql2, values2);
 
-        // return the verified applicant
-        const _applicant = await getApplicant(user_id);
-
-        // console.log("applicant", applicant);
-
-        return _applicant;
+        return {
+          success: "true",
+          message: "Password set successfully!",
+        };
       } catch (error) {
         // console.log("error", error);
         throw new GraphQLError(error.message);
       }
     },
     applicantLogin: async (parent, args) => {
-      const { mode, user_id, password } = args;
-      let applicant = null;
+      const { user_id, password } = args;
       try {
-        if (mode == "email") {
-          // used email to login,
-          // first, check if the email is valid
-          let sql = `
+        const sql = `
           SELECT applicants.*, 
-          applicant_pwds.id AS pwd_id,
-          applicant_pwds.password 
+                 applicant_pwds.id AS pwd_id, 
+                 applicant_pwds.password 
           FROM applicants 
-          INNER JOIN applicant_pwds ON applicants.id = applicant_pwds.user_id
-          WHERE email = ?
-          `;
-          let values = [user_id];
+          LEFT JOIN applicant_pwds ON applicants.id = applicant_pwds.user_id
+          WHERE email = ? OR phone_no = ?
+        `;
+        const values = [user_id, user_id];
 
-          const [results, fields] = await db.execute(sql, values);
+        const [results] = await db.execute(sql, values);
 
-          if (!results[0]) {
-            throw new GraphQLError("Incorrect Email!", {
-              extensions: {
-                http: { status: 400 },
-              },
-            });
-          }
-
-          applicant = results[0];
-        } else if (mode == "phone") {
-          let sql = `
-          SELECT applicants.*, 
-          applicant_pwds.id AS pwd_id,
-          applicant_pwds.password 
-          FROM applicants 
-          INNER JOIN applicant_pwds ON applicants.id = applicant_pwds.user_id
-          WHERE phone_no = ?`;
-          let values = [user_id];
-
-          const [results, fields] = await db.execute(sql, values);
-
-          if (!results[0]) {
-            throw new GraphQLError("Incorrect Phone Number!", {
-              extensions: {
-                http: { status: 400 },
-              },
-            });
-          }
-
-          applicant = results[0];
-        } else {
-          throw new GraphQLError("System Error, Try again later!", {
-            extensions: {
-              http: { status: 400 },
-            },
+        if (!results.length) {
+          throw new GraphQLError("Incorrect User ID or Password!", {
+            extensions: { http: { status: 400 } },
           });
         }
 
-        // email or password is valid, check the password
-        const auth = await bcrypt.compare(password, applicant.password);
+        const { password: hashedPassword, ...applicant } = results[0];
 
-        if (auth) {
-          return applicant;
-        } else {
-          throw new GraphQLError("Incorrect Password!", {
-            extensions: {
-              http: { status: 400 },
-            },
+        if (
+          !hashedPassword ||
+          !(await bcrypt.compare(password, hashedPassword))
+        ) {
+          throw new GraphQLError("Incorrect User ID or Password!", {
+            extensions: { http: { status: 400 } },
           });
         }
+
+        const token = jwt.sign(
+          { applicant_id: applicant.id },
+          APPLICANT_PRIVATE_KEY,
+          {
+            expiresIn: "1d",
+          }
+        );
+
+        return { token };
       } catch (error) {
-        // console.log("error", error);
         throw new GraphQLError(error.message);
       }
     },
-    changeApplicantPassword: async (parent, args) => {
-      const { user_id, old_password, new_password } = args;
+    changeApplicantPassword: async (parent, args, context) => {
+      const user_id = context.req.user.applicant_id;
+      const { old_password, new_password } = args;
       // console.log("args", args);
       const today = new Date();
       try {
@@ -439,13 +495,11 @@ const applicantResolvers = {
         applicant_pwds.id AS pwd_id,
         applicant_pwds.password 
         FROM applicants 
-        INNER JOIN applicant_pwds ON applicants.id = applicant_pwds.user_id
+        LEFT JOIN applicant_pwds ON applicants.id = applicant_pwds.user_id
         WHERE applicants.id = ?`;
         let values = [user_id];
 
         const [results, fields] = await db.execute(sql, values);
-
-        // console.log("results", results);
 
         let applicant = results[0];
 
@@ -460,136 +514,73 @@ const applicantResolvers = {
         // then check if the old password is valid
         const auth = await bcrypt.compare(old_password, applicant.password);
 
-        if (auth) {
-          // now lets change the password
-          // generate a password hash for the new password
-          const salt = await bcrypt.genSalt();
-          const hashedPwd = await bcrypt.hash(new_password, salt);
-
-          // insert the password details in the database
-          let sql4 = `UPDATE applicant_pwds set password = ?, changed_on = ?, changed_by = ? WHERE  id = ?`;
-          let values4 = [hashedPwd, today, user_id, applicant.pwd_id];
-
-          const [results4, fields4] = await db.execute(sql4, values4);
-
-          return {
-            success: "true",
-            message: "Password Changed Successfully",
-          };
-        } else {
-          throw new GraphQLError("Incorrect Password!", {
-            extensions: {
-              http: { status: 400 },
-            },
-          });
-        }
-      } catch (error) {
-        // console.log("error", error);
-        throw new GraphQLError(error.message);
-      }
-    },
-    saveApplicantBioData: async (parent, args) => {
-      const {
-        applicant_id,
-        form_no,
-        admissions_id,
-        salutation,
-        district_of_birth,
-        district_of_origin,
-        religion,
-        marital_status,
-        nin,
-        place_of_residence,
-        completed_form_sections,
-      } = args;
-
-      // first, we need to check for the existence of the applicant
-      try {
-        const applicant = await getApplicant(applicant_id);
-
-        if (!applicant) {
-          throw new GraphQLError("Invalid User!", {
+        if (!auth) {
+          throw new GraphQLError("Incorrect Old Password!", {
             extensions: {
               http: { status: 400 },
             },
           });
         }
 
-        // update the biodata of the applicant
-        let sql2 = `UPDATE applicants SET 
-          salutation_id = ?, 
-          district_of_birth = ?, 
-          district_of_origin = ?, 
-          religion = ?, 
-          marital_status = ?, 
-          nin = ?, 
-          place_of_residence = ?
-          WHERE id = ?`;
+        // now lets change the password
+        // generate a password hash for the new password
+        const salt = await bcrypt.genSalt();
+        const hashedPwd = await bcrypt.hash(new_password, salt);
 
-        let values2 = [
-          salutation,
-          district_of_birth,
-          district_of_origin,
-          religion,
-          marital_status,
-          nin,
-          place_of_residence,
-          applicant_id,
-        ];
+        // insert the password details in the database
+        let sql4 = `UPDATE applicant_pwds set password = ?, changed_on = ?, changed_by = ? WHERE  id = ?`;
+        let values4 = [hashedPwd, today, user_id, applicant.pwd_id];
 
-        const [results2, fields2] = await db.execute(sql2, values2);
-
-        const uniqueFormNumber = generateFormNumber();
-        const today = new Date();
-        const status = "pending";
-
-        // lets see if the form is already created
-        let sql4 = `SELECT * FROM applications WHERE form_no = ?`;
-        let values4 = [form_no];
-
-        const [results4, fields4] = await db.execute(sql4, values4);
-
-        // console.log("results566", results4);
-
-        if (!results4[0]) {
-          // now, lets create the form for the applicant
-          // insert the details in the database
-          let sql3 = `INSERT INTO applications (
-          applicant_id, 
-          form_no, 
-          admissions_id, 
-          creation_date, 
-          status,
-          completed_section_ids
-          ) VALUES (?, ?, ?, ?, ?, ?)`;
-
-          let values3 = [
-            applicant_id,
-            uniqueFormNumber,
-            admissions_id,
-            today,
-            status,
-            completed_form_sections,
-          ];
-
-          const [results3, fields3] = await db.execute(sql3, values3);
-
-          // console.log("results", results3);
-        } else {
-          // if the application exists, just update the form section ids
-          let sql = `UPDATE applications SET completed_section_ids = ? WHERE id = ?`;
-
-          let values = [completed_form_sections, results4[0].id];
-
-          const [results, fields] = await db.execute(sql, values);
-        }
+        await db.execute(sql4, values4);
 
         return {
           success: "true",
-          message: "Biodata saved Successfully",
+          message: "Password Changed Successfully",
         };
       } catch (error) {
-        console.log("error", error.message);
+        throw new GraphQLError(error.message);
+      }
+    },
+    saveApplicantBioData: async (parent, args, context) => {
+      const applicant_id = context.req.user.applicant_id;
+
+      try {
+        const applicantData = await checkApplicantData(
+          applicant_id,
+          args.payload
+        );
+
+        const data = {
+          salutation_id: applicantData.salutation,
+          district_of_birth: applicantData.district_of_birth,
+          district_of_origin: applicantData.district_of_origin,
+          religion: applicantData.religion,
+          marital_status: applicantData.marital_status,
+          nin: applicantData.nin,
+          place_of_residence: applicantData.place_of_residence,
+          is_complete: true,
+        };
+
+        await saveData({
+          table: "applicants",
+          data,
+          id: applicant_id,
+          idColumn: "id",
+        });
+
+        const application = await getApplicationForms({
+          running_admissions_id: applicantData.admissions_id,
+          applicant_id,
+          form_no: applicantData.form_no,
+          application_details: true,
+        });
+
+        return {
+          success: true,
+          message: "Applicant Bio Data Saved Successfully",
+          result: application[0],
+        };
+      } catch (error) {
         throw new GraphQLError(error.message);
       }
     },

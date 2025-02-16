@@ -17,6 +17,8 @@ import {
   host,
   baseUrl,
 } from "./config/config.js";
+import { WebSocketServer } from "ws";
+import { useServer } from "graphql-ws/lib/use/ws";
 
 import generateRandomString from "./utilities/genrateSystemPwd.js";
 // import getNextStdNumber from "./utilities/generateStdno.js";
@@ -32,6 +34,7 @@ import { fileURLToPath } from "url";
 import authenticateUser from "./middleware/auth.js";
 import { format } from "fast-csv";
 import { getStudentRegistrationReport } from "./schema/student_registration/resolvers.js";
+import { makeExecutableSchema } from "@graphql-tools/schema";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -49,21 +52,22 @@ let allowedOrigins = [
   "https://intranet-j5rr.vercel.app",
 ];
 
-app.use(
-  cors({
-    origin: function (origin, callback) {
-      // allow requests with no origin (like mobile apps or curl requests)
-      if (!origin) return callback(null, true);
-      if (allowedOrigins.indexOf(origin) === -1) {
-        let msg =
-          "The CORS policy for this site does not " +
-          "allow access from the specified Origin.";
-        return callback(new Error(msg), false);
-      }
-      return callback(null, true);
-    },
-  })
-);
+// app.use(
+//   cors({
+//     origin: function (origin, callback) {
+//       console.log("origin", origin);
+//       // allow requests with no origin (like mobile apps or curl requests)
+//       if (!origin) return callback(null, true);
+//       if (allowedOrigins.indexOf(origin) === -1) {
+//         let msg =
+//           "The CORS policy for this site does not " +
+//           "allow access from the specified Origin.";
+//         return callback(new Error(msg), false);
+//       }
+//       return callback(null, true);
+//     },
+//   })
+// );
 
 const getActiveUniversitySession = async () => {
   let sql = "SELECT * FROM university_sessions ORDER BY us_id DESC LIMIT 1";
@@ -1812,12 +1816,43 @@ app.get("/download-student-reg-report", async (req, res) => {
   }
 });
 
+const schema = makeExecutableSchema({
+  typeDefs,
+  resolvers,
+});
+
+// Create a WebSocket server
+const wsServer = new WebSocketServer({
+  server: httpServer,
+  path: "/graphql",
+});
+
+// Use the WebSocket server with graphql-ws
+const wsServerClean = useServer(
+  {
+    schema,
+  },
+  wsServer
+);
+
 const server = new ApolloServer({
   typeDefs,
   resolvers,
   csrfPrevention: true,
-  plugins: [ApolloServerPluginDrainHttpServer({ httpServer })],
+  plugins: [
+    ApolloServerPluginDrainHttpServer({ httpServer }),
+    {
+      async serverWillStart() {
+        return {
+          async drainServer() {
+            await wsServerClean.dispose();
+          },
+        };
+      },
+    },
+  ],
   introspection: true,
+
   // formatError: (err) => {
   //   // Only expose custom error message and status if it's set
   //   const errorDetails = {
@@ -1839,7 +1874,7 @@ const server = new ApolloServer({
 
 await server.start();
 app.use(
-  "/",
+  "/graphql",
   cors({
     origin: function (origin, callback) {
       // allow requests with no origin (like mobile apps or curl requests)
@@ -1855,7 +1890,6 @@ app.use(
   }),
   bodyParser.json({ limit: "50mb" }),
   graphqlUploadExpress(),
-
   expressMiddleware(server, {
     // context: async ({ req }) => ({ token: req.headers.token }),
     context: async ({ req, res }) => {
@@ -1866,6 +1900,9 @@ app.use(
         "Login",
         "IntrospectionQuery",
         "studentPortalLogin",
+        "applicantLogin",
+        "registerApplicant",
+        "nationalities",
       ]);
 
       const studentOperations = new Set([
@@ -1881,16 +1918,52 @@ app.use(
         "studentSemesterEnrollment",
       ]);
 
+      const applicantOperations = new Set([
+        "verifyOTP",
+        "resendOTP",
+        "setApplicantPassword",
+        "applicantProfile",
+        "changeApplicantPassword",
+        "loadRunningSchemes",
+        "myApplications",
+        "application_details",
+        "formRequirements",
+        "saveApplicantBioData",
+        "applicant_form_sections",
+        "advertisedCourses",
+        "saveProgramChoices",
+        "getUnebCentres",
+        "getUnebSubjects",
+        "saveUnebResults",
+        "saveApplicantQualifications",
+        "saveApplicationAttachments",
+        "saveNextOfKin",
+        "submitApplication",
+      ]);
+
       // Authenticate user if the operation is not exempt
       if (!exemptOperations.has(operationName)) {
         try {
           const portalType = req.headers["x-portal-type"];
-          if (portalType && !studentOperations.has(operationName)) {
+
+          const STUDENT_CAN_PERFORM_OPERATION =
+            portalType === "student" && studentOperations.has(operationName);
+          const APPLICANT_CAN_PERFORM_OPERATION =
+            portalType === "applicant" &&
+            applicantOperations.has(operationName);
+
+          // console.log("applicant can", APPLICANT_CAN_PERFORM_OPERATION);
+
+          if (
+            !STUDENT_CAN_PERFORM_OPERATION &&
+            !APPLICANT_CAN_PERFORM_OPERATION &&
+            portalType
+          ) {
             throw new GraphQLError("User is not supported for this operation");
           }
+
           await authenticateUser({ req });
         } catch (error) {
-          // console.error("Authentication Error:", error);
           throw new GraphQLError(error.message, {
             extensions: { code: "UNAUTHENTICATED" },
           });

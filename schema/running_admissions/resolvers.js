@@ -7,10 +7,15 @@ export const getAllRunningAdmissions = async ({
   intake_id,
   scheme_id,
   acc_yr_id,
+  admission_level_id,
 } = {}) => {
   try {
+    if (intake_id == "" || scheme_id == "" || acc_yr_id == "") return [];
+
     let where = "";
     let values = [];
+    let extra_select = "";
+    let extra_join = "";
 
     if (id) {
       where += " AND running_admissions.id = ?";
@@ -31,13 +36,24 @@ export const getAllRunningAdmissions = async ({
       where += " AND running_admissions.acc_yr_id = ?";
       values.push(acc_yr_id);
     }
-    let sql = `SELECT running_admissions.*, intakes.intake_title FROM 
-    running_admissions
-    LEFT JOIN intakes ON running_admissions.intake_id = intakes.id
-    WHERE running_admissions.deleted = 0 ${where} ORDER BY running_admissions.id DESC`;
+
+    if (admission_level_id) {
+      where += " AND running_admissions.admission_level_id = ?";
+      values.push(admission_level_id);
+    }
+
+    let sql = `SELECT 
+      running_admissions.*, 
+      intakes.intake_title
+      ${extra_select}
+      FROM 
+      running_admissions
+      LEFT JOIN intakes ON running_admissions.intake_id = intakes.id
+      ${extra_join}
+      WHERE running_admissions.deleted = 0 ${where} 
+      ORDER BY running_admissions.id DESC`;
 
     const [results, fields] = await db.execute(sql, values);
-    // console.log("results", results);
     return results;
   } catch (error) {
     console.log("error", error);
@@ -52,9 +68,11 @@ export const getAllRunningAdmissions = async ({
 
 const runningAdmissionsResolvers = {
   Query: {
-    running_admissions: async () => {
+    running_admissions: async (parent, args, context) => {
       try {
         const result = await getAllRunningAdmissions();
+
+        // const runningAdmissions = getRunningAdmissions(result);
         return result;
       } catch (error) {
         // console.log("errr", error.message);
@@ -184,7 +202,8 @@ const runningAdmissionsResolvers = {
     },
   },
   Mutation: {
-    saveRunningAdmission: async (parent, args) => {
+    saveRunningAdmission: async (parent, args, context) => {
+      const user_id = context.req.user.id;
       const {
         id,
         intake_id,
@@ -204,7 +223,6 @@ const runningAdmissionsResolvers = {
         national_admission_fees,
         east_african_admission_fees,
         international_admission_fees,
-        added_by,
       } = args;
       // we need the current date
       const today = new Date();
@@ -255,7 +273,7 @@ const runningAdmissionsResolvers = {
             national_admission_fees,
             east_african_admission_fees,
             international_admission_fees,
-            added_by,
+            user_id,
             today,
             id,
           ];
@@ -337,7 +355,7 @@ const runningAdmissionsResolvers = {
             national_admission_fees,
             east_african_admission_fees,
             international_admission_fees,
-            added_by,
+            user_id,
             today,
           ];
 

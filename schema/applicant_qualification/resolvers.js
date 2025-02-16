@@ -6,6 +6,7 @@ import {
   getApplicationForms,
   updateApplicationCompletedSections,
 } from "../application/resolvers.js";
+import { checkApplicantData } from "../applicant/resolvers.js";
 
 export const getApplicantQualifications = async ({
   id,
@@ -68,65 +69,22 @@ const applicantQualificationRessolvers = {
   },
 
   Mutation: {
-    saveQualifications: async (parent, args) => {
+    saveQualifications: async (parent, args, context) => {
+      const applicant_id = context.req.user.applicant_id;
       const {
         has_other_qualifications,
         qualifications,
-        applicant_id,
         admissions_id,
         form_no,
         remove_ids,
-        completed_form_sections,
       } = args;
 
-      let applicationId = "";
-
       try {
-        if (!form_no) {
-          throw new GraphQLError("Please fill in the Bio Data section");
-        }
-        // console.log("the grgs", args);
-        // lets see if the form is already created
-        const existingApplicationForm = await getApplicationForms({
-          applicant_id,
-          admissions_id,
-        });
-
-        // console.log("existing application form", existingApplicationForm[0]);
-
-        if (!existingApplicationForm[0]) {
-          // now, lets create the form for the applicant
-          applicationId = await createApplication(
-            applicant_id,
-            admissions_id
-            // completed_form_sections
-          );
-
-          // console.log("existing application form---", applicationId);
-        } else {
-          // if the application exists, just update the form section ids
-          // await updateApplicationCompletedSections(
-          //   existingApplicationForm[0].id,
-          //   completed_form_sections
-          // );
-          applicationId = existingApplicationForm[0].id;
-        }
-
-        // console.log("existing application id", applicationId);
+        const applicantData = await checkApplicantData(applicant_id, args);
 
         if (has_other_qualifications) {
-          // now lets work on the actual results
-          const idsString = remove_ids.join(","); // Convert array to comma-separated string
-          // console.log("ids", idsString);
-          if (idsString) {
-            const sql = `DELETE FROM applicant_qualifications WHERE id IN (${idsString})`;
-
-            // Execute the SQL query
-            const [results, fields] = await db.execute(sql);
-          }
-
           // save the qualifications
-          const saveQuals = await qualifications.map(async (qual) => {
+          for (const qual of qualifications) {
             const data = {
               applicant_id,
               form_no,
@@ -146,28 +104,48 @@ const applicantQualificationRessolvers = {
               id: qual.id,
               data,
             });
-          });
+          }
 
-          await Promise.all(saveQuals);
+          // delete the ones to be deleted
+          const idsString = remove_ids.join(","); // Convert array to comma-separated string
+
+          if (idsString) {
+            const sql = `DELETE FROM applicant_qualifications WHERE id IN (${idsString})`;
+
+            // Execute the SQL query
+            await db.execute(sql);
+          }
         }
 
-        await saveData({
-          table: "applications",
-          id: applicationId,
-          data: {
-            has_other_qualifications,
-          },
+        // lets now update the applications record to notify that the applicant is done with this section
+        const _application = await getApplicationForms({
+          running_admissions_id: applicantData.admissions_id,
+          applicant_id,
+          form_no: applicantData.form_no,
+          application_details: true,
         });
 
-        // just update the form section ids
-        await updateApplicationCompletedSections(
-          applicationId,
-          completed_form_sections
-        );
+        if (!_application || _application.length === 0) {
+          throw new GraphQLError("Application form not found.");
+        }
+
+        const save_id = await saveData({
+          table: "applications",
+          data: {
+            has_other_qualifications,
+            qualifications_section_complete: true,
+          },
+          id: _application[0].id,
+        });
+
+        const application = await getApplicationForms({
+          id: save_id,
+        });
 
         return {
-          success: "true",
-          message: "Other Qualifications saved Successfully",
+          success: true,
+          message: "Other Qualifications Saved Successfully",
+          result: application[0],
         };
       } catch (error) {
         console.log("error", error.message);

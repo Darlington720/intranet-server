@@ -49,7 +49,7 @@ if (currentMonth < 7) {
 async function generateStdno() {
   // First, check the last generated number
   try {
-    let sql = "SELECT * FROM students ORDER BY id DESC LIMIT 1";
+    let sql = "SELECT * FROM students ORDER BY student_no DESC LIMIT 1";
     const [results, fields] = await db.execute(sql);
 
     let currentNumber = results[0] ? results[0].student_no : null;

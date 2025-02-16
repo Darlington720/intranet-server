@@ -1,3 +1,5 @@
+import { getApplicationForms } from "../schema/application/resolvers.js";
+
 function checkSchemeStatus(start_date, end_date) {
   const currentDate = Date.now(); // Get the current timestamp
 
@@ -8,20 +10,28 @@ function checkSchemeStatus(start_date, end_date) {
   }
 }
 
-const getRunningAdmissions = (admissions) => {
+const getRunningAdmissions = async (admissions, applicant_id) => {
   const currentDate = Date.now(); // Get the current timestamp
 
-  let x = admissions.filter((admission) => {
-    const startDate = Date.parse(admission.start_date); // converting to timestamp
-    const endDate = Date.parse(admission.end_date);
+  const admissionsWithForms = await Promise.all(
+    admissions.map(async (admission) => {
+      const startDate = Date.parse(admission.start_date);
+      const endDate = Date.parse(admission.end_date);
 
-    // console.log("startdate", startDate);
+      if (currentDate >= startDate && currentDate <= endDate) {
+        const [application] = await getApplicationForms({
+          applicant_id,
+          admissions_id: admission.id,
+        });
 
-    return currentDate >= startDate && currentDate <= endDate;
-  });
+        return { ...admission, form_no: application?.form_no || null };
+      }
+      return null; // Filter out items that don't match
+    })
+  );
 
-  // console.log("jkhshjsj", x);
-  return x;
+  // Remove `null` values from the result
+  return admissionsWithForms.filter((admission) => admission !== null);
 };
 
 export default getRunningAdmissions;

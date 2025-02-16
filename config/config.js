@@ -11,6 +11,7 @@ const port = 2323;
 const host = "0.0.0.0";
 const PRIVATE_KEY = "tredumo#123";
 const PORTAL_PRIVATE_KEY = "stdPortal@tredumo123#";
+const APPLICANT_PRIVATE_KEY = "applicant@tredumo1234#";
 const baseUrl = `http://localhost:2222/module_logos/`;
 
 const database = knex({
@@ -98,4 +99,5 @@ export {
   host,
   PRIVATE_KEY,
   PORTAL_PRIVATE_KEY,
+  APPLICANT_PRIVATE_KEY,
 };

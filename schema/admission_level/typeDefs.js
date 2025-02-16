@@ -11,7 +11,7 @@ const AdmissionLevelTypeDefs = `#graphql
     modified_on: String,
     created_user: Staff,
     modified_user: Staff,
-    running_admissions: [RunningAdmission],
+    running_admissions(admissions_id: String): [RunningAdmission],
    }
 
     type Query {

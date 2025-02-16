@@ -7,6 +7,7 @@ import {
   updateApplicationCompletedSections,
 } from "../application/resolvers.js";
 import saveData from "../../utilities/db/saveData.js";
+import { checkApplicantData } from "../applicant/resolvers.js";
 
 export const getApplicantNextOfKin = async ({
   id,
@@ -68,72 +69,56 @@ const nextOfKinResolvers = {
     // },
   },
   Mutation: {
-    saveNextOfKin: async (parent, args) => {
-      const {
-        id,
-        applicant_id,
-        form_no,
-        admissions_id,
-        full_name,
-        email,
-        address,
-        phone_no,
-        relation,
-        completed_form_sections,
-      } = args;
+    saveNextOfKin: async (parent, args, context) => {
+      const applicant_id = context.req.user.applicant_id;
 
-      let applicationId = "";
-
-      if (!form_no) {
-        throw new GraphQLError("Please fill in the Bio Data section");
-      }
-
-      const existingApplicationForm = await getApplicationForms({
-        applicant_id,
-        admissions_id,
-      });
-
-      // console.log("existing application form", existingApplicationForm[0]);
-
-      if (!existingApplicationForm[0]) {
-        // now, lets create the form for the applicant
-        applicationId = await createApplication(
-          applicant_id,
-          admissions_id
-          // completed_form_sections
-        );
-
-        // console.log("existing application form---", applicationId);
-      } else {
-        applicationId = existingApplicationForm[0].id;
-      }
+      const applicantData = await checkApplicantData(applicant_id, args);
 
       const data = {
         applicant_id,
-        form_no,
-        admissions_id,
-        full_name,
-        email,
-        address,
-        phone_no,
-        relation,
+        form_no: applicantData.form_no,
+        admissions_id: applicantData.admissions_id,
+        full_name: applicantData.full_name,
+        email: applicantData.email,
+        address: applicantData.address,
+        phone_no: applicantData.phone_no,
+        relation: applicantData.relation,
       };
 
-      const save_id = await saveData({
+      await saveData({
         table: "applicant_next_of_kin",
-        id,
+        id: applicantData.id,
         data,
       });
 
-      // just update the form section ids
-      await updateApplicationCompletedSections(
-        applicationId,
-        completed_form_sections
-      );
+      // lets now update the applications record to notify that the applicant is done with this section
+      const _application = await getApplicationForms({
+        running_admissions_id: applicantData.admissions_id,
+        applicant_id,
+        form_no: applicantData.form_no,
+        application_details: true,
+      });
+
+      if (!_application || _application.length === 0) {
+        throw new GraphQLError("Application form not found.");
+      }
+
+      const save_id = await saveData({
+        table: "applications",
+        data: {
+          nok_section_complete: true,
+        },
+        id: _application[0].id,
+      });
+
+      const application = await getApplicationForms({
+        id: save_id,
+      });
 
       return {
-        success: "true",
-        message: "Next of kin saved Successfully",
+        success: true,
+        message: "Next Of Kin Information Saved Successfully",
+        result: application[0],
       };
     },
   },

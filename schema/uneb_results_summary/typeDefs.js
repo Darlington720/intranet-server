@@ -14,7 +14,8 @@ const unebResultsSummaryTypeDefs = `#graphql
         total_passes: Int,
         uneb_study_level_id: String!,
         school: UnebCentre
-        uneb_results: [UnebResult]
+        uneb_results: [UnebResult],
+        completed: Boolean
     }
 
     type UnebResult {
@@ -31,7 +32,7 @@ const unebResultsSummaryTypeDefs = `#graphql
 
     type Mutation {
         saveUnebResults(
-            did_exams: Int!,
+            did_exams: Boolean!,
             school_id: String,
             index_no: String,
             year_of_sitting: String,
@@ -39,13 +40,11 @@ const unebResultsSummaryTypeDefs = `#graphql
             total_credits: Int,
             total_passes: Int,
             uneb_study_level_id: String!,
-            applicant_id: String!,
             form_no: String,
             admissions_id: String!,
             uneb_results: [UnebResultInput]!,
             remove_ids: [String]!
-            completed_form_sections: String!
-        ): ResponseMessage
+        ): ApplicationResponse
     }
 
 

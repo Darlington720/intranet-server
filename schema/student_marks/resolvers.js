@@ -112,6 +112,7 @@ export const getStdResults = async ({
     // Pagination
     const pagination =
       start !== undefined && limit !== undefined ? `LIMIT ? OFFSET ?` : "";
+
     if (pagination) {
       values.push(limit, start);
     }

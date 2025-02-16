@@ -9,6 +9,7 @@ import {
 } from "../application/resolvers.js";
 import { getUnebSubjects } from "../uneb_subjects/resolvers.js";
 import { getUnebCentres } from "../uneb_center/resolvers.js";
+import { checkApplicantData } from "../applicant/resolvers.js";
 
 export const getUnebResultsSummary = async ({
   id,
@@ -218,8 +219,8 @@ const unebResultsSummaryResolvers = {
     },
   },
   Mutation: {
-    saveUnebResults: async (parent, args) => {
-      const today = new Date();
+    saveUnebResults: async (parent, args, context) => {
+      const applicant_id = context.req.user.applicant_id;
       const {
         did_exams,
         school_id,
@@ -229,25 +230,14 @@ const unebResultsSummaryResolvers = {
         total_credits,
         total_passes,
         uneb_study_level_id,
-        applicant_id,
         form_no,
         admissions_id,
         uneb_results,
         remove_ids,
-        completed_form_sections,
       } = args;
 
-      // console.log("the grgs", args);
-
-      let message = "";
-
       try {
-        // first lets see if the results exist
-        let existingUnebResult = await getUnebResultsSummary({
-          applicant_id,
-          form_no,
-          uneb_study_level_id, // O or A level
-        });
+        const applicantData = await checkApplicantData(applicant_id, args);
 
         let data = null;
 
@@ -265,6 +255,7 @@ const unebResultsSummaryResolvers = {
             total_credits,
             total_passes,
             uneb_study_level_id,
+            completed: true,
           };
         } else {
           data = {
@@ -276,8 +267,15 @@ const unebResultsSummaryResolvers = {
             index_no,
             year_of_sitting,
             uneb_study_level_id,
+            completed: true,
           };
         }
+
+        let existingUnebResult = await getUnebResultsSummary({
+          applicant_id,
+          form_no: applicantData.form_no,
+          uneb_study_level_id, // O or A level
+        });
 
         const save_id = await saveData({
           table: "uneb_results_summary",
@@ -300,7 +298,7 @@ const unebResultsSummaryResolvers = {
 
           // console.log("delete results", results);
 
-          const insertUnebResults = await uneb_results.map(async (result) => {
+          for (const result of uneb_results) {
             const { subject_code, grade } = result;
 
             const _data = {
@@ -314,40 +312,25 @@ const unebResultsSummaryResolvers = {
               subject_code,
             });
 
-            const save_id2 = await saveData({
+            await saveData({
               table: "uneb_results_details",
               id: existingResult[0] ? existingResult[0].id : null,
               data: _data,
             });
-          });
-
-          await Promise.all(insertUnebResults);
+          }
         }
 
-        // lets see if the form is already created
-        const existingApplicationForm = await getApplicationForms({
+        const application = await getApplicationForms({
+          running_admissions_id: applicantData.admissions_id,
           applicant_id,
-          admissions_id,
+          form_no: applicantData.form_no,
+          application_details: true,
         });
 
-        if (!existingApplicationForm[0]) {
-          // now, lets create the form for the applicant
-          await createApplication(
-            applicant_id,
-            admissions_id,
-            completed_form_sections
-          );
-        } else {
-          // if the application exists, just update the form section ids
-          await updateApplicationCompletedSections(
-            existingApplicationForm[0].id,
-            completed_form_sections
-          );
-        }
-
         return {
-          success: "true",
-          message: "Results saved Successfully",
+          success: true,
+          message: "Applicant Bio Data Saved Successfully",
+          result: application[0],
         };
       } catch (error) {
         console.log("error", error.message);
