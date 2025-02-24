@@ -13,11 +13,12 @@ export const getApplicant = async (applicant_id) => {
   try {
     let sql = `SELECT 
       applicants.*, 
-      nationality_categories.id as nationality_category_id,
+      nationalities.nationality_category_id as nationality_category_id,
+      nationalities.nationality_title,
       salutations.salutation_code AS salutation 
       FROM applicants 
       LEFT JOIN salutations ON applicants.salutation_id = salutations.id
-      LEFT JOIN nationality_categories ON applicants.nationality_id = nationality_categories.id
+      LEFT JOIN nationalities ON applicants.nationality_id = nationalities.id
       WHERE applicants.id = ? `;
     let values = [applicant_id];
 
@@ -30,12 +31,13 @@ export const getApplicant = async (applicant_id) => {
   }
 };
 
-const getApplicantsSummary = async ({
+export const getApplicantsSummary = async ({
   acc_yr_id,
   scheme_id,
   intake_id,
   completed,
   school_id,
+  admitted,
 }) => {
   try {
     let where = "";
@@ -65,6 +67,11 @@ const getApplicantsSummary = async ({
     if (school_id && school_id !== "all") {
       where += " AND cr.school_id = ?";
       values.push(school_id);
+    }
+
+    if (admitted) {
+      where += " AND a.is_admitted = ?";
+      values.push(admitted);
     }
 
     // let sql = `SELECT

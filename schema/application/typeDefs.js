@@ -12,7 +12,8 @@ const applicationTypeDefs = `#graphql
         is_paid: String!,
         std_id: String, # only received after admission
         is_admitted: Boolean,
-        admitted_by: String!,
+        admitted_by: String,
+        admitted_by_user: String,
         has_other_qualifications: Boolean,
         has_chosen_courses: Boolean
         has_attachments: Boolean,
@@ -30,6 +31,7 @@ const applicationTypeDefs = `#graphql
         attachments_section_complete: Boolean
         nok_section_complete: Boolean
         submission_date: String
+        admitted_choice: Int
     }
 
     type ApplicationResponse {
@@ -46,9 +48,9 @@ const applicationTypeDefs = `#graphql
     type Query {
         applications(applicant_id: String, admissions_id: String, course_id: String, campus_id: String, is_completed: Boolean): [Application]
         application(admissions_id: String, applicant_id: String!, form_no: String): Application
-        admitted_students_summary(acc_yr_id: String!, scheme_id: String!, intake_id: String!): [ApplicantSammary]!
+        admitted_students_summary(acc_yr_id: String!, scheme_id: String!, intake_id: String!, school_id: String!): [ApplicantSammary]!
         admitted_students(applicant_id: String, admissions_id: String, course_id: String, campus_id: String): [Student]
-        my_applications: [Application]
+        my_applications(admitted: Boolean): [Application]
         application_details(running_admissions_id: String, form_no: String): Application
     }
 

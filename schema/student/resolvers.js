@@ -162,7 +162,8 @@ export const getStudents = async ({
 
     if (get_course_details) {
       extra_join += " LEFT JOIN courses ON courses.id = students.course_id";
-      extra_select += " ,courses.course_duration, courses.level";
+      extra_select +=
+        " ,courses.course_duration, courses.level, courses.course_title, courses.course_code";
     }
 
     if (fetchStdBio) {

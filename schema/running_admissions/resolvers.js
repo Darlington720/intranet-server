@@ -8,6 +8,7 @@ export const getAllRunningAdmissions = async ({
   scheme_id,
   acc_yr_id,
   admission_level_id,
+  details,
 } = {}) => {
   try {
     if (intake_id == "" || scheme_id == "" || acc_yr_id == "") return [];
@@ -40,6 +41,12 @@ export const getAllRunningAdmissions = async ({
     if (admission_level_id) {
       where += " AND running_admissions.admission_level_id = ?";
       values.push(admission_level_id);
+    }
+
+    if (details) {
+      extra_select += " ,schemes.scheme_title";
+      extra_join +=
+        " LEFT JOIN schemes ON schemes.id = running_admissions.scheme_id";
     }
 
     let sql = `SELECT 

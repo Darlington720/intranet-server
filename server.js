@@ -49,6 +49,7 @@ let allowedOrigins = [
   "http://localhost:2323",
   "http://localhost:2222",
   "http://localhost:5173",
+  "http://localhost:5174",
   "https://intranet-j5rr.vercel.app",
 ];
 
@@ -1939,6 +1940,8 @@ app.use(
         "saveApplicationAttachments",
         "saveNextOfKin",
         "submitApplication",
+        "myAdmissions",
+        "printAdmissionLetter",
       ]);
 
       // Authenticate user if the operation is not exempt

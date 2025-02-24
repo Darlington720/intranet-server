@@ -11,6 +11,7 @@ export const getFunctionalFees = async ({
   level_id,
   nationality_category_id,
   study_time_id,
+  // study_yr,
 }) => {
   try {
     let where = "";
@@ -20,6 +21,11 @@ export const getFunctionalFees = async ({
       where += " AND functional_fees.acc_yr_id = ?";
       values.push(acc_yr_id);
     }
+
+    // if (study_yr) {
+    //   where += " AND functional_fees.acc_yr_id = ?";
+    //   values.push(acc_yr_id);
+    // }
 
     if (campus_id) {
       where += " AND functional_fees.campus_id = ?";

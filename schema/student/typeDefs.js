@@ -34,6 +34,7 @@ const studentTypeDefs = `#graphql
         added_by: String!,
         verified_by: String,
         admitted_on: String,
+        admitted_by_user:  String
         status: Int,
         current_info: CurrentStudentInfo
         # enrollment_status: String # this is supposed to be Not Enrolled, or Enrolled,

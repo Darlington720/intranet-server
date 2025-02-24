@@ -19,6 +19,7 @@ import generateRegNo from "../../utilities/emails/generateRegistrationNo.js";
 import saveData from "../../utilities/db/saveData.js";
 import sendEmail from "../../utilities/emails/admission-mail.js";
 import { PubSub } from "graphql-subscriptions";
+import { getApplicantsSummary } from "../applicant/resolvers.js";
 
 const pubsub = new PubSub();
 const UPLOAD_PROGRESS = "UPLOAD_PROGRESS";
@@ -34,6 +35,7 @@ export const getApplicationForms = async ({
   id,
   admitted_stds,
   application_details,
+  is_admitted,
 }) => {
   try {
     let where = "";
@@ -55,6 +57,11 @@ export const getApplicationForms = async ({
     if (admissions_id) {
       where += " AND applications.admissions_id = ?";
       values.push(admissions_id);
+    }
+
+    if (is_admitted) {
+      where += " AND applications.is_admitted = ?";
+      values.push(is_admitted);
     }
 
     if (form_no) {
@@ -97,16 +104,24 @@ export const getApplicationForms = async ({
     }
 
     if (admitted_stds) {
-      extra_join += ` LEFT JOIN students ON applications.id = students.application_id 
+      extra_join += ` LEFT JOIN students ON applications.id = students.application_id AND applications.form_no = students.form_no
       LEFT JOIN campuses ON students.campus_id = campuses.id
       LEFT JOIN study_times ON students.study_time_id = study_times.id
       LEFT JOIN intakes ON students.intake_id = intakes.id
+      LEFT JOIN employees ON applications.admitted_by = employees.id
+      LEFT JOIN salutations ON employees.salutation_id = salutations.id
       `;
-      extra_select +=
-        "students.*, campuses.campus_title, study_times.study_time_title, intakes.intake_title, students.creation_date as admitted_on, students.id as std_id, ";
+      extra_select += `students.*, 
+          campuses.campus_title, 
+          study_times.study_time_title, 
+          intakes.intake_title, 
+          students.creation_date as admitted_on, 
+          students.id as std_id, 
+          CONCAT(salutations.salutation_code, ' ',  employees.surname, ' ', employees.other_names) AS admitted_by_user,
+          `;
 
       where += " AND applications.is_admitted = ?";
-      values.push(1); // considering those admitted only
+      values.push(true); // considering those admitted only
 
       extra_order += "students.creation_date";
     }
@@ -281,10 +296,11 @@ const applicationResolvers = {
     },
     my_applications: async (parent, args, context) => {
       const applicant_id = context.req.user.applicant_id;
-
+      const { admitted } = args;
       try {
         const _applications = await getApplicationForms({
           applicant_id,
+          is_admitted: admitted,
         });
 
         return _applications;
@@ -329,13 +345,21 @@ const applicationResolvers = {
     },
 
     admitted_students_summary: async (parent, args) => {
-      const { acc_yr_id, scheme_id, intake_id } = args;
+      const { acc_yr_id, scheme_id, intake_id, school_id } = args;
 
       try {
-        const admittedStds = await getAdmittedStdsSummary({
+        // const admittedStds = await getAdmittedStdsSummary({
+        //   acc_yr_id,
+        //   scheme_id,
+        //   intake_id,
+        // });
+
+        const admittedStds = await getApplicantsSummary({
           acc_yr_id,
           scheme_id,
           intake_id,
+          school_id,
+          admitted: true,
         });
 
         // console.log("admitted students", admittedStds);
@@ -348,13 +372,15 @@ const applicationResolvers = {
     admitted_students: async (parent, args) => {
       const { admissions_id, applicant_id, course_id, campus_id } = args;
 
+      console.log("here we are...");
+
       try {
         const _applications = await getApplicationForms({
           applicant_id,
           admissions_id,
           course_id,
           campus_id,
-          admitted_stds: true, // the flag that activates admitted stds
+          admitted_stds: true,
         });
 
         // console.log("admitted", _applications);
