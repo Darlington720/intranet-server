@@ -22,7 +22,9 @@ import saveDataWithOutDuplicates from "../../utilities/db/saveDataWithOutDuplica
 import { GraphQLError } from "graphql";
 import { getStdResults } from "../student_marks/resolvers.js";
 import calculateGrades from "../../utilities/helpers/calculateGrades.js";
-import calculateNextEnrollment from "../../utilities/helpers/calculateNextEnrollment.js";
+import calculateNextEnrollment, {
+  determineEnrollmentStatus,
+} from "../../utilities/helpers/calculateNextEnrollment.js";
 import { getEnrollmentTypes } from "../enrollment_status/resolvers.js";
 
 export const getApplicant = async (applicant_id) => {
@@ -89,6 +91,8 @@ export const getStudents = async ({
   study_time,
   get_course_details = false,
   fetchStdBio = false,
+  search_creteria,
+  search_value,
 }) => {
   try {
     let where = "";
@@ -111,6 +115,20 @@ export const getStudents = async ({
     //   where += " AND students.student_no = ?";
     //   values.push(std_no);
     // }
+    if (search_creteria && search_value) {
+      extra_join +=
+        " LEFT JOIN applicants ON applicants.id = students.applicant_id";
+
+      if (search_creteria === "name") {
+        where += ` AND CONCAT(applicants.surname, ' ', applicants.other_names) LIKE ?`;
+        values.push(`%${search_value}%`);
+      } else {
+        // if (search_creteria === "student_no") {
+        where += ` AND ${search_creteria} LIKE ?`;
+        values.push(`%${search_value}%`);
+        // }
+      }
+    }
 
     if (regno) {
       where += " AND students.registration_no = ?";
@@ -124,7 +142,7 @@ export const getStudents = async ({
 
     if (sic) {
       where += " AND students.is_std_verified = ?";
-      values.push(1); // only verified students to student information center
+      values.push(true); // only verified students to student information center
     }
 
     if (campus_id) {
@@ -169,7 +187,8 @@ export const getStudents = async ({
     if (fetchStdBio) {
       extra_join +=
         " LEFT JOIN applicants ON applicants.id = students.applicant_id LEFT JOIN nationality_categories ON applicants.nationality_id = nationality_categories.id";
-      extra_select += " ,nationality_categories.id as nationality_category_id";
+      extra_select +=
+        " ,nationality_categories.id as nationality_category_id, applicants.surname, applicants.other_names";
     }
 
     let sql = `SELECT 
@@ -184,7 +203,7 @@ export const getStudents = async ({
     LEFT JOIN campuses ON students.campus_id = campuses.id
     LEFT JOIN study_times ON study_times.id = students.study_time_id
     ${extra_join}
-    WHERE students.deleted = 0 ${where}`;
+    WHERE students.deleted = 0 ${where} LIMIT 1000`;
     const [results, fields] = await db.execute(sql, values);
     // console.log("results", results);
     return results;
@@ -220,8 +239,16 @@ export const getStudentAccountBalance = async ({ student_no }) => {
 const studentResolvers = {
   Query: {
     students: async (parent, args) => {
-      const { campus, intake, acc_yr, course_version, sic } = args;
-      // console.log("args", args);
+      const {
+        campus,
+        intake,
+        acc_yr,
+        course_version,
+        sic,
+        search_creteria,
+        search_value,
+      } = args;
+
       try {
         const students = await getStudents({
           campus_id: campus,
@@ -229,15 +256,36 @@ const studentResolvers = {
           acc_yr_id: acc_yr,
           course_version_id: course_version,
           sic,
+          search_creteria,
+          search_value,
         });
 
-        return students;
+        // Fetch student enrollment history for each student
+        const studentsWithEnrollment = await Promise.all(
+          students.map(async (std) => {
+            const studentEnrollmentHistory = await getStudentEnrollment({
+              std_no: std.student_no,
+            });
+
+            let study_yr = std.entry_study_yr;
+            let current_sem = "1";
+
+            if (studentEnrollmentHistory.length > 0) {
+              const lastEnrollmentRecord = studentEnrollmentHistory[0];
+              study_yr = lastEnrollmentRecord.study_yr;
+              current_sem = lastEnrollmentRecord.sem;
+            }
+
+            return { ...std, study_yr, current_sem };
+          })
+        );
+
+        return studentsWithEnrollment;
       } catch (error) {
-        console.log("err", error.message);
+        console.error("Error fetching students:", error.message);
         throw new GraphQLError(error.message);
       }
     },
-
     loadStudentFile: async (parent, args) => {
       const { student_id, student_no } = args;
       // console.log("args", args);
@@ -246,35 +294,40 @@ const studentResolvers = {
         const students = await getStudents({
           std_no: student_no,
           std_id: student_id,
+          get_course_details: true,
         });
 
-        // now enrollment status.
-        // first we are going to first check for the running university semesters
-        // and then speccify that we need the one where the student intake falls under
         if (!students[0]) return null;
 
         const running_semesters = await getRunningSemesters({
           intake_id: students[0].intake_id,
         });
 
-        // console.log("running sems", running_semesters);
-
-        // will later cater for when there is no running sem
-        // if (!running_semesters[0]) return
-
         // now lets check if the student has any record of enrollment with the obtained active_sem id
         const student_enrollment = await getStudentEnrollment({
           std_no: student_no,
-          active_sem_id: running_semesters[0]?.id,
+          acc_yr: running_semesters[0]?.acc_yr_id,
+          true_sem: running_semesters[0]?.semester,
+          // active_sem_id: running_semesters[0]?.id,
         });
 
         // console.log(student_enrollment);
 
         if (!student_enrollment[0]) {
+          let semester;
+          const studentEnrollmentHistory = await getStudentEnrollment({
+            std_no: student_no,
+          });
+
+          if (studentEnrollmentHistory.length == 0) {
+            semester = 1;
+          } else {
+            const lastEnrollmentRecord = studentEnrollmentHistory[0];
+            semester = lastEnrollmentRecord.sem == 1 ? 2 : 1;
+          }
+
           // student is not yet enrolled
-          enrollment_status = `Not Enrolled in Sem ${
-            running_semesters[0].semester || 1
-          }`;
+          enrollment_status = `Not Enrolled in Sem ${semester}`;
         } else {
           enrollment_status = "Enrolled";
         }
@@ -322,6 +375,7 @@ const studentResolvers = {
         let enrollment_status = null;
         const students = await getStudents({
           std_no: student_no,
+          get_course_details: true,
         });
 
         // now enrollment status.
@@ -438,14 +492,16 @@ const studentResolvers = {
         });
       }
     },
-    enrollment_history: async (parent, args) => {
+    enrollment_history: async (parent, args, context) => {
       try {
+        const stdno = context.req.user.student_no;
         const student_no = parent.student_no;
 
         // console.log("id", id);
 
         const results = await getStudentEnrollment({
           std_no: student_no,
+          active: stdno ? true : false,
         });
 
         // console.log("results", results);
@@ -471,58 +527,205 @@ const studentResolvers = {
         throw new GraphQLError(error.message);
       }
     },
+    // _current_info: async (parent, args) => {
+    //   const { student_no, intake_id, course_duration } = parent;
+
+    //   try {
+    //     let enrollment_status = null;
+    //     let registration_status = null;
+
+    //     // lets first get the most recent enrollment
+    //     const enrollment_history = await getStudentEnrollment({
+    //       std_no: student_no,
+    //       exclude_dead_semesters: true,
+    //     });
+
+    //     const recentEn = enrollment_history[0];
+
+    //     // now, lets proceed to the current university session based on student intake
+    //     const [runningSem] = await getRunningSemesters({
+    //       intake_id,
+    //       limit: 1,
+    //     });
+
+    //     const student_enrollment = enrollment_history.filter(
+    //       (enrollment) =>
+    //         enrollment.acc_yr == runningSem.acc_yr_id &&
+    //         enrollment.active_sem_id == runningSem.id
+    //     );
+
+    //     // console.log("student enrollment", {
+    //     //   enrollmentHistory: enrollment_history,
+    //     //   currentAccYr: runningSem.acc_yr_title,
+    //     //   courseDuration: course_duration,
+    //     //   entryAccYr: parent.entry_acc_yr_title,
+    //     // });
+    //     const nextEn = calculateNextEnrollment({
+    //       enrollmentHistory: enrollment_history,
+    //       currentAccYr: runningSem.acc_yr_title,
+    //       courseDuration: course_duration,
+    //       entryAccYr: parent.entry_acc_yr_title,
+    //     });
+
+    //     // console.log("next en", nextEn);
+
+    //     const enrollment_types = await getEnrollmentTypes({
+    //       enrollent_codes: nextEn.enrollment_status,
+    //     });
+
+    //     if (!student_enrollment[0]) {
+    //       // student is not yet enrolled
+    //       enrollment_status = `Not Enrolled in Sem ${nextEn.semester}`;
+    //       registration_status = "Not Registered";
+    //     } else {
+    //       enrollment_status = "Enrolled";
+    //     }
+
+    //     // get student account balance
+    //     const account_balance = await getStudentAccountBalance({
+    //       student_no,
+    //     });
+
+    //     if (student_enrollment[0]) {
+    //       // get Student Registration status
+    //       const [existingRegistration] = await getStudentRegistrationHistory({
+    //         std_no: student_no,
+    //         enrollment_token: student_enrollment[0].enrollment_token,
+    //       });
+
+    //       const currentDate = new Date();
+
+    //       if (existingRegistration) {
+    //         if (existingRegistration.provisional) {
+    //           const provisionalExpiry = new Date(
+    //             existingRegistration.provisional_expiry
+    //           ); // Parse the expiry string into a Date object
+    //           if (currentDate < provisionalExpiry) {
+    //             registration_status = "Provisionally Registered";
+    //           } else {
+    //             registration_status = "Not Registered";
+    //           }
+    //         } else {
+    //           registration_status = "Registered";
+    //         }
+    //       } else {
+    //         registration_status = "Not Registered";
+    //       }
+    //     }
+
+    //     const data = {
+    //       recent_enrollment: recentEn,
+    //       current_acc_yr: runningSem.acc_yr_title,
+    //       acc_yr_id: runningSem.acc_yr_id,
+    //       active_sem_id: runningSem.id,
+    //       true_study_yr: nextEn.study_year,
+    //       true_sem: nextEn.semester,
+    //       enrollment_status,
+    //       progress: "NORMAL",
+    //       account_balance: account_balance || 0,
+    //       registration_status,
+    //       enrollment_types,
+    //     };
+
+    //     // console.log("the data", data);
+
+    //     return data;
+    //   } catch (error) {
+    //     throw new GraphQLError(error.message);
+    //   }
+    // },
     current_info: async (parent, args) => {
-      // need the student number and the intake
-      const { student_no, intake_id } = parent;
-
+      const { student_no, intake_id, course_duration } = parent;
+      const currentDate = new Date();
+      let next_study_yr;
+      let next_sem;
+      let enrollment_status;
+      let registration_status;
+      let enrollment_statuses;
       try {
-        let enrollment_status = null;
-        let registration_status = null;
-
-        // lets first get the most recent enrollment
-        const enrollment_history = await getStudentEnrollment({
+        // we need the student details
+        const [studentDetails] = await getStudents({
           std_no: student_no,
-          exclude_dead_semesters: true,
         });
 
-        const recentEn = enrollment_history[0];
+        if (!studentDetails) {
+          throw new GraphQLError("Invalid Student No!");
+        }
 
-        const [courseDetails] = await getCourse({
-          course_id: parent.course_id,
-          course_version_id: parent.course_version_id,
-        });
-
-        // now, lets proceed to the current university session based on student intake
+        //     // now, lets proceed to the current university session based on student intake
         const [runningSem] = await getRunningSemesters({
           intake_id,
           limit: 1,
         });
 
-        const student_enrollment = enrollment_history.filter(
-          (enrollment) =>
-            enrollment.acc_yr == runningSem.acc_yr_id &&
-            enrollment.sem == runningSem.semester
-        );
-
-        console.log("student enrollment", student_enrollment);
-        const nextEn = calculateNextEnrollment({
-          enrollmentHistory: enrollment_history,
-          currentAccYr: runningSem.acc_yr_title,
-          courseDuration: courseDetails.course_duration,
-          entryAccYr: parent.entry_acc_yr_title,
+        // first we need the enrollmentt history
+        const enrollmentHist = await getStudentEnrollment({
+          std_no: student_no,
         });
 
-        // console.log("next en", nextEn);
+        const recentEn = enrollmentHist[0];
 
-        const enrollment_types = await getEnrollmentTypes({
-          enrollent_codes: nextEn.enrollment_status,
-        });
-
-        if (!student_enrollment[0]) {
-          // student is not yet enrolled
-          enrollment_status = `Not Enrolled in Sem ${runningSem.semester}`;
+        if (enrollmentHist.length == 0) {
+          // new student
+          next_study_yr = studentDetails.entry_study_yr;
+          next_sem = 1; // new std
+          enrollment_status = "Not Enrolled";
+          registration_status = "Not Registered";
+          enrollment_statuses: ["new_student"];
         } else {
-          enrollment_status = "Enrolled";
+          // the recent enrollment
+
+          // we also need the student's registration for the recent enrollment
+          const [recentReg] = await getStudentRegistrationHistory({
+            enrollment_token: recentEn.enrollment_token,
+          });
+
+          if (!recentReg) {
+            // remains in the same semester
+            next_study_yr = recentEn.study_yr;
+            next_sem = recentEn.sem;
+            registration_status = "Not Registered";
+          } else {
+            // move to the next
+            // but the max study years must not exceed the course duration
+            if (recentEn.sem == 2) {
+              // increase the study yr
+              next_study_yr =
+                parseInt(recentEn.study_yr) == course_duration
+                  ? recentEn.study_yr
+                  : parseInt(recentEn.study_yr) + 1;
+              next_sem = 1;
+            } else {
+              next_study_yr = recentEn.study_yr;
+              next_sem = parseInt(recentEn.sem) + 1;
+            }
+
+            if (recentReg.provisional) {
+              // registration_status = "Provisionally Registered";
+              const provisionalExpiry = new Date(recentReg.provisional_expiry); // Parse the expiry string into a Date object
+              if (currentDate < provisionalExpiry) {
+                registration_status = "Provisionally Registered";
+              } else {
+                registration_status = "Not Registered";
+              }
+            } else {
+              registration_status = "Registered";
+            }
+          }
+
+          const student_enrollment = enrollmentHist.filter(
+            (enrollment) =>
+              enrollment.acc_yr == runningSem.acc_yr_id &&
+              enrollment.active_sem_id == runningSem.id
+          );
+
+          if (!student_enrollment[0]) {
+            // student is not yet enrolled
+            enrollment_status = `Not Enrolled in Sem ${next_sem}`;
+            registration_status = "Not Registered";
+          } else {
+            enrollment_status = "Enrolled";
+          }
         }
 
         // get student account balance
@@ -530,38 +733,29 @@ const studentResolvers = {
           student_no,
         });
 
-        // get Student Registration status
-        const existingRegistration = await getStudentRegistrationHistory({
-          std_no: student_no,
-          acc_yr: runningSem.acc_yr_id,
-          sem: runningSem.semester,
+        if (enrollmentHist.length > 0) {
+          enrollment_statuses = determineEnrollmentStatus(
+            "",
+            next_study_yr,
+            next_sem,
+            "",
+            course_duration
+          );
+        }
+
+        const enrollment_types = await getEnrollmentTypes({
+          enrollent_codes: enrollment_statuses,
         });
 
-        const currentDate = new Date();
-
-        if (existingRegistration.length === 0) {
-          registration_status = "Not Registered";
-        } else {
-          const registration = existingRegistration[0]; // Assume we are checking the first registration
-          if (registration.provisional) {
-            const provisionalExpiry = new Date(registration.provisional_expiry); // Parse the expiry string into a Date object
-            if (currentDate < provisionalExpiry) {
-              registration_status = "Provisionally Registered";
-            } else {
-              registration_status = "Not Registered";
-            }
-          } else {
-            registration_status = "Registered";
-          }
-        }
+        // console.log("enrollment_types", enrollment_types);
 
         const data = {
           recent_enrollment: recentEn,
           current_acc_yr: runningSem.acc_yr_title,
           acc_yr_id: runningSem.acc_yr_id,
           active_sem_id: runningSem.id,
-          true_study_yr: nextEn.study_year,
-          true_sem: nextEn.semester,
+          true_study_yr: next_study_yr,
+          true_sem: next_sem,
           enrollment_status,
           progress: "NORMAL",
           account_balance: account_balance || 0,
@@ -585,483 +779,6 @@ const studentResolvers = {
     },
   },
   Mutation: {
-    // registerApplicant: async (parent, args) => {
-    //   const {
-    //     surname,
-    //     other_names,
-    //     email,
-    //     phone_no,
-    //     nationality_id,
-    //     date_of_birth,
-    //     gender,
-    //   } = args;
-
-    //   // no repeatition of emails is allowed
-    //   try {
-    //     let sql = `SELECT applicants.*, otps.id as otp_id FROM applicants
-    //     INNER JOIN otps ON otps.user_id = applicants.id
-    //     WHERE email = ? OR phone_no = ?`;
-    //     let values = [email, phone_no];
-
-    //     const [results, fields] = await db.execute(sql, values);
-
-    //     // console.log("results", results);
-
-    //     if (results[0]) {
-    //       throw new GraphQLError("User already exists!", {
-    //         extensions: {
-    //           http: { status: 400 },
-    //         },
-    //       });
-    //     }
-
-    //     //we need to send an otp to the applicant's email and phone number
-    //     const otp_code = Math.floor(100000 + Math.random() * 900000);
-    //     const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // expires in 5 minutes
-
-    //     const _data = {
-    //       surname,
-    //       other_names,
-    //       email,
-    //       phone_no,
-    //       nationality_id,
-    //       date_of_birth,
-    //       gender,
-    //     };
-
-    //     const save_id = await saveData({
-    //       table: "applicants",
-    //       data: _data,
-    //       id: results[0] ? results[0].id : null,
-    //     });
-
-    //     const _data2 = {
-    //       user_id: save_id,
-    //       otp_code: otp_code,
-    //       expires_at: expiresAt,
-    //     };
-
-    //     await sendEmail(email, otp_code);
-
-    //     await saveData({
-    //       table: "otps",
-    //       data: _data2,
-    //       id: results[0] ? results[0].otp_id : null,
-    //     });
-
-    //     // insert the details in the database
-    //     // let sql2 = `INSERT INTO applicants (
-    //     //             surname,
-    //     //             other_names,
-    //     //             email,
-    //     //             phone_no,
-    //     //             nationality_id,
-    //     //             date_of_birth,
-    //     //             gender) VALUES (?, ?, ?, ?, ?, ?, ?)`;
-    //     // let values2 = [
-    //     //   surname,
-    //     //   other_names,
-    //     //   email,
-    //     //   phone_no,
-    //     //   nationality_id,
-    //     //   date_of_birth,
-    //     //   gender,
-    //     // ];
-
-    //     // const [results2, fields2] = await db.execute(sql2, values2);
-
-    //     // // insert the details in the database
-    //     // let sql4 = `INSERT INTO otps (
-    //     //     user_id,
-    //     //     otp_code,
-    //     //     expires_at
-    //     //     ) VALUES (?, ?, ?)`;
-    //     // let values4 = [results2.insertId, otp_code, expiresAt];
-
-    //     // const [results4, fields4] = await db.execute(sql4, values4);
-
-    //     // now let's return the registered user
-    //     const applicant = await getApplicant(save_id);
-
-    //     // console.log("results", results3);
-    //     return applicant; // the registered applicant
-    //   } catch (error) {
-    //     // console.log("error", error);
-    //     throw new GraphQLError(error.message);
-    //   }
-    // },
-    // verifyOTP: async (parent, args) => {
-    //   const { user_id, otp_code } = args;
-
-    //   // check if otp is valid
-    //   try {
-    //     let sql = `SELECT * FROM otps WHERE user_id = ? AND otp_code = ? ORDER BY id DESC LIMIT 1`;
-    //     let values = [user_id, otp_code];
-
-    //     const [results, fields] = await db.execute(sql, values);
-
-    //     if (!results[0]) {
-    //       throw new GraphQLError("Invalid OTP!", {
-    //         extensions: {
-    //           http: { status: 400 },
-    //         },
-    //       });
-    //     }
-
-    //     // check if otp is expired
-    //     const currentTimestamp = new Date();
-    //     const expiresTimestamp = new Date(results[0].expires_at);
-
-    //     if (currentTimestamp > expiresTimestamp) {
-    //       throw new GraphQLError("OTP has expired!", {
-    //         extensions: {
-    //           http: { status: 400 },
-    //         },
-    //       });
-    //     }
-
-    //     // the otp is valid, update applicant to verified
-    //     let sql2 = `UPDATE applicants SET is_verified = ? WHERE id = ?`;
-    //     let values2 = [1, user_id];
-
-    //     const [results2, fields2] = await db.execute(sql2, values2);
-
-    //     // return the verified applicant
-    //     const applicant = await getApplicant(user_id);
-
-    //     // console.log("applicant", applicant);
-
-    //     return applicant;
-    //   } catch (error) {
-    //     console.log("error", error);
-    //     throw new GraphQLError(error.message);
-    //   }
-    // },
-    // resendOTP: async (parent, args) => {
-    //   const { user_id } = args;
-
-    //   //we need to send an otp to the applicant's email and phone number
-    //   const otp_code = Math.floor(100000 + Math.random() * 900000);
-    //   const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // expires in 5 minutes
-
-    //   try {
-    //     // first, the user must be a valid user
-    //     const applicant = await getApplicant(user_id);
-
-    //     if (!applicant) {
-    //       throw new GraphQLError("Invalid user!", {
-    //         extensions: {
-    //           http: { status: 400 },
-    //         },
-    //       });
-    //     }
-
-    //     // insert the otp details in the database
-    //     let sql4 = `INSERT INTO otps (
-    //         user_id,
-    //         otp_code,
-    //         expires_at
-    //         ) VALUES (?, ?, ?)`;
-    //     let values4 = [user_id, otp_code, expiresAt];
-
-    //     const [results4, fields4] = await db.execute(sql4, values4);
-
-    //     await sendEmail(applicant.email, otp_code);
-
-    //     return {
-    //       success: "true",
-    //       message: "OTP sent successfully!",
-    //     };
-    //   } catch (error) {
-    //     // console.log("error", error);
-    //     throw new GraphQLError(error.message);
-    //   }
-    // },
-    // setApplicantPassword: async (parent, args) => {
-    //   const { user_id, password } = args;
-    //   const today = new Date();
-    //   try {
-    //     // first, the user must be a valid user
-    //     const applicant = await getApplicant(user_id);
-
-    //     if (!applicant) {
-    //       throw new GraphQLError("Invalid user!", {
-    //         extensions: {
-    //           http: { status: 400 },
-    //         },
-    //       });
-    //     }
-
-    //     // generate a password hash for applicant
-    //     const salt = await bcrypt.genSalt();
-    //     const hashedPwd = await bcrypt.hash(password, salt);
-
-    //     // insert the password details in the database
-    //     let sql4 = `INSERT INTO applicant_pwds (
-    //         user_id,
-    //         password,
-    //         created_on
-    //         ) VALUES (?, ?, ?)`;
-    //     let values4 = [user_id, hashedPwd, today];
-
-    //     const [results4, fields4] = await db.execute(sql4, values4);
-
-    //     // update the has_pwd flag in the applicants db
-    //     let sql2 = `UPDATE applicants SET has_pwd = ? WHERE id = ?`;
-    //     let values2 = [1, user_id];
-
-    //     const [results2, fields2] = await db.execute(sql2, values2);
-
-    //     // return the verified applicant
-    //     const _applicant = await getApplicant(user_id);
-
-    //     // console.log("applicant", applicant);
-
-    //     return _applicant;
-    //   } catch (error) {
-    //     // console.log("error", error);
-    //     throw new GraphQLError(error.message);
-    //   }
-    // },
-    // applicantLogin: async (parent, args) => {
-    //   const { mode, user_id, password } = args;
-    //   let applicant = null;
-    //   try {
-    //     if (mode == "email") {
-    //       // used email to login,
-    //       // first, check if the email is valid
-    //       let sql = `
-    //       SELECT applicants.*,
-    //       applicant_pwds.id AS pwd_id,
-    //       applicant_pwds.password
-    //       FROM applicants
-    //       INNER JOIN applicant_pwds ON applicants.id = applicant_pwds.user_id
-    //       WHERE email = ?
-    //       `;
-    //       let values = [user_id];
-
-    //       const [results, fields] = await db.execute(sql, values);
-
-    //       if (!results[0]) {
-    //         throw new GraphQLError("Incorrect Email!", {
-    //           extensions: {
-    //             http: { status: 400 },
-    //           },
-    //         });
-    //       }
-
-    //       applicant = results[0];
-    //     } else if (mode == "phone") {
-    //       let sql = `
-    //       SELECT applicants.*,
-    //       applicant_pwds.id AS pwd_id,
-    //       applicant_pwds.password
-    //       FROM applicants
-    //       INNER JOIN applicant_pwds ON applicants.id = applicant_pwds.user_id
-    //       WHERE phone_no = ?`;
-    //       let values = [user_id];
-
-    //       const [results, fields] = await db.execute(sql, values);
-
-    //       if (!results[0]) {
-    //         throw new GraphQLError("Incorrect Phone Number!", {
-    //           extensions: {
-    //             http: { status: 400 },
-    //           },
-    //         });
-    //       }
-
-    //       applicant = results[0];
-    //     } else {
-    //       throw new GraphQLError("System Error, Try again later!", {
-    //         extensions: {
-    //           http: { status: 400 },
-    //         },
-    //       });
-    //     }
-
-    //     // email or password is valid, check the password
-    //     const auth = await bcrypt.compare(password, applicant.password);
-
-    //     if (auth) {
-    //       return applicant;
-    //     } else {
-    //       throw new GraphQLError("Incorrect Password!", {
-    //         extensions: {
-    //           http: { status: 400 },
-    //         },
-    //       });
-    //     }
-    //   } catch (error) {
-    //     // console.log("error", error);
-    //     throw new GraphQLError(error.message);
-    //   }
-    // },
-    // changeApplicantPassword: async (parent, args) => {
-    //   const { user_id, old_password, new_password } = args;
-    //   // console.log("args", args);
-    //   const today = new Date();
-    //   try {
-    //     // first, the user must be a valid user
-    //     let sql = `SELECT
-    //     applicants.*,
-    //     applicant_pwds.id AS pwd_id,
-    //     applicant_pwds.password
-    //     FROM applicants
-    //     INNER JOIN applicant_pwds ON applicants.id = applicant_pwds.user_id
-    //     WHERE applicants.id = ?`;
-    //     let values = [user_id];
-
-    //     const [results, fields] = await db.execute(sql, values);
-
-    //     // console.log("results", results);
-
-    //     let applicant = results[0];
-
-    //     if (!applicant) {
-    //       throw new GraphQLError("Invalid user!", {
-    //         extensions: {
-    //           http: { status: 400 },
-    //         },
-    //       });
-    //     }
-
-    //     // then check if the old password is valid
-    //     const auth = await bcrypt.compare(old_password, applicant.password);
-
-    //     if (auth) {
-    //       // now lets change the password
-    //       // generate a password hash for the new password
-    //       const salt = await bcrypt.genSalt();
-    //       const hashedPwd = await bcrypt.hash(new_password, salt);
-
-    //       // insert the password details in the database
-    //       let sql4 = `UPDATE applicant_pwds set password = ?, changed_on = ?, changed_by = ? WHERE  id = ?`;
-    //       let values4 = [hashedPwd, today, user_id, applicant.pwd_id];
-
-    //       const [results4, fields4] = await db.execute(sql4, values4);
-
-    //       return {
-    //         success: "true",
-    //         message: "Password Changed Successfully",
-    //       };
-    //     } else {
-    //       throw new GraphQLError("Incorrect Password!", {
-    //         extensions: {
-    //           http: { status: 400 },
-    //         },
-    //       });
-    //     }
-    //   } catch (error) {
-    //     // console.log("error", error);
-    //     throw new GraphQLError(error.message);
-    //   }
-    // },
-    // saveApplicantBioData: async (parent, args) => {
-    //   const {
-    //     applicant_id,
-    //     form_no,
-    //     admissions_id,
-    //     salutation,
-    //     district_of_birth,
-    //     district_of_origin,
-    //     religion,
-    //     marital_status,
-    //     nin,
-    //     place_of_residence,
-    //     completed_form_sections,
-    //   } = args;
-
-    //   // first, we need to check for the existence of the applicant
-    //   try {
-    //     const applicant = await getApplicant(applicant_id);
-
-    //     if (!applicant) {
-    //       throw new GraphQLError("Invalid User!", {
-    //         extensions: {
-    //           http: { status: 400 },
-    //         },
-    //       });
-    //     }
-
-    //     // update the biodata of the applicant
-    //     let sql2 = `UPDATE applicants SET
-    //       salutation_id = ?,
-    //       district_of_birth = ?,
-    //       district_of_origin = ?,
-    //       religion = ?,
-    //       marital_status = ?,
-    //       nin = ?,
-    //       place_of_residence = ?
-    //       WHERE id = ?`;
-
-    //     let values2 = [
-    //       salutation,
-    //       district_of_birth,
-    //       district_of_origin,
-    //       religion,
-    //       marital_status,
-    //       nin,
-    //       place_of_residence,
-    //       applicant_id,
-    //     ];
-
-    //     const [results2, fields2] = await db.execute(sql2, values2);
-
-    //     const uniqueFormNumber = generateFormNumber();
-    //     const today = new Date();
-    //     const status = "pending";
-
-    //     // lets see if the form is already created
-    //     let sql4 = `SELECT * FROM applications WHERE form_no = ?`;
-    //     let values4 = [form_no];
-
-    //     const [results4, fields4] = await db.execute(sql4, values4);
-
-    //     // console.log("results566", results4);
-
-    //     if (!results4[0]) {
-    //       // now, lets create the form for the applicant
-    //       // insert the details in the database
-    //       let sql3 = `INSERT INTO applications (
-    //       applicant_id,
-    //       form_no,
-    //       admissions_id,
-    //       creation_date,
-    //       status,
-    //       completed_section_ids
-    //       ) VALUES (?, ?, ?, ?, ?, ?)`;
-
-    //       let values3 = [
-    //         applicant_id,
-    //         uniqueFormNumber,
-    //         admissions_id,
-    //         today,
-    //         status,
-    //         completed_form_sections,
-    //       ];
-
-    //       const [results3, fields3] = await db.execute(sql3, values3);
-
-    //       // console.log("results", results3);
-    //     } else {
-    //       // if the application exists, just update the form section ids
-    //       let sql = `UPDATE applications SET completed_section_ids = ? WHERE id = ?`;
-
-    //       let values = [completed_form_sections, results4[0].id];
-
-    //       const [results, fields] = await db.execute(sql, values);
-    //     }
-
-    //     return {
-    //       success: "true",
-    //       message: "Biodata saved Successfully",
-    //     };
-    //   } catch (error) {
-    //     console.log("error", error.message);
-    //     throw new GraphQLError(error.message);
-    //   }
-    // },
     saveNewStudent: async (parent, args, context) => {
       const user_id = context.req.user.id;
       const {
@@ -2014,6 +1731,46 @@ const studentResolvers = {
         return {
           success: "true",
           message: "Enrollment details saved successfully",
+        };
+      } catch (error) {
+        throw new GraphQLError(error.message);
+      }
+    },
+    saveStudentDetails: async (parent, args, context) => {
+      const user_id = context.req.user.id;
+      const {
+        std_id,
+        student_no,
+        registration_no,
+        course_id,
+        intake_id,
+        study_time_id,
+        campus_id,
+        is_resident,
+        hall_of_residence,
+      } = args.payload;
+
+      try {
+        const data = {
+          student_no,
+          registration_no,
+          course_id,
+          intake_id,
+          study_time_id,
+          campus_id,
+          is_resident,
+          hall_of_residence,
+        };
+
+        const save_id = await saveData({
+          table: "students",
+          data,
+          id: std_id,
+        });
+
+        return {
+          success: true,
+          message: "Student details saved successfully",
         };
       } catch (error) {
         throw new GraphQLError(error.message);

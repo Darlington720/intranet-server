@@ -5,6 +5,12 @@ const responseMessageTypeDefs = `#graphql
           message: String!
         }
 
+        type Response {
+          success: Boolean,
+          message: String!,
+          # result: Any
+        }
+
 `;
 
 export default responseMessageTypeDefs;

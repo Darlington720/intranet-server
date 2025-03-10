@@ -7,7 +7,7 @@ const intakeTypeDefs = `#graphql
         added_on: String!,
         modified_by: String,
         modified_on: String,
-        added_user: Staff!,
+        added_user: Staff,
         modified_user: Staff
     }
 

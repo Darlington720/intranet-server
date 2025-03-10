@@ -25,6 +25,7 @@ import {
 import generateInvoiceNo from "../../utilities/generateInvoiceNo.js";
 import generateRegistrationToken from "../../utilities/generateRegistrationToken.js";
 import { stringify } from "csv-stringify";
+import { getStudentEnrollment } from "../student_enrollment/resolvers.js";
 
 export const getStudentRegistrationHistory = async ({
   std_no,
@@ -33,6 +34,7 @@ export const getStudentRegistrationHistory = async ({
   acc_yr,
   limit,
   enrollment_token,
+  provisional,
 }) => {
   try {
     let where = "";
@@ -51,6 +53,11 @@ export const getStudentRegistrationHistory = async ({
     if (sem) {
       where += " AND students_registration.sem = ?";
       values.push(sem);
+    }
+
+    if (provisional) {
+      where += " AND students_registration.provisional = ?";
+      values.push(provisional);
     }
 
     if (acc_yr) {
@@ -195,8 +202,8 @@ export const getStudentRegistrationReport = async ({
   LEFT JOIN colleges ON colleges.id = courses.college_id
   LEFT JOIN acc_yrs enrollaccyr ON students_enrollment.acc_yr = enrollaccyr.id
   LEFT JOIN enrollment_status ON students_enrollment.enrollment_status_id = enrollment_status.id
-  LEFT JOIN students_registration ON students_registration.enrollment_token = students_enrollment.enrollment_token
-  WHERE students_enrollment.deleted = 0 ${where}
+  LEFT JOIN students_registration ON students_registration.enrollment_token = students_enrollment.enrollment_token AND students_registration.deleted = 0 
+  WHERE students_enrollment.deleted = 0 AND students_enrollment.active = 1 ${where}
   ORDER BY students_enrollment.study_yr DESC,students_enrollment.sem DESC, students_enrollment.datetime DESC`;
 
   let totals_sql = `
@@ -210,7 +217,7 @@ LEFT JOIN students ON students.student_no = students_enrollment.stdno
 LEFT JOIN courses ON students.course_id = courses.id
 LEFT JOIN students_registration ON students_registration.enrollment_token = students_enrollment.enrollment_token
 WHERE 
-    students_enrollment.deleted = 0
+    students_enrollment.deleted = 0 AND students_enrollment.active = 1
     ${where}; 
  `;
 
@@ -241,9 +248,9 @@ WHERE
     LEFT JOIN colleges ON colleges.id = courses.college_id
     LEFT JOIN acc_yrs enrollaccyr ON students_enrollment.acc_yr = enrollaccyr.id
     LEFT JOIN enrollment_status ON students_enrollment.enrollment_status_id = enrollment_status.id
-    LEFT JOIN students_registration ON students_registration.enrollment_token = students_enrollment.enrollment_token
+    LEFT JOIN students_registration ON students_registration.enrollment_token = students_enrollment.enrollment_token AND students_registration.deleted = 0 
     WHERE 
-        students_enrollment.deleted = 0
+        students_enrollment.deleted = 0  AND students_enrollment.active = 1
         ${where}
     GROUP BY 
         schools.id, schools.school_title,
@@ -325,7 +332,7 @@ const studentRegistrationResolvers = {
         course_id,
         details: true,
       });
-      // console.log("result", result);
+      console.log("result", result);
       return result;
     },
     download_report: async (_, args, { res }) => {
@@ -374,7 +381,8 @@ const studentRegistrationResolvers = {
 
       console.log("payload", args.payload);
 
-      await db.beginTransaction();
+      let connection = await db.getConnection();
+      await connection.beginTransaction();
       try {
         if (provisional) {
           // first, lets check for the existing registration record
@@ -463,14 +471,107 @@ const studentRegistrationResolvers = {
           });
         }
 
-        await db.commit();
+        await connection.commit();
 
         return {
           success: "true",
           message: "Student Registered Successfully",
         };
       } catch (error) {
-        await db.rollback();
+        await connection.rollback();
+        throw new GraphQLError(error.message);
+      }
+    },
+    selfRegister: async (parent, args, context) => {
+      const student_no = context.req.user.student_no;
+      const enrollment_token = args.enrollment_token;
+
+      const registrationToken = generateRegistrationToken();
+      try {
+        // check for the student enrollment details
+        const [studentEnrollment] = await getStudentEnrollment({
+          std_no: student_no,
+          enrollment_token,
+          exclude_dead_semesters: true,
+        });
+
+        if (!studentEnrollment) {
+          throw new GraphQLError("Invalid Enrollment Token");
+        }
+
+        // check if the student is already registered
+        const [existingRegistration] = await getStudentRegistrationHistory({
+          std_no: student_no,
+          study_yr: studentEnrollment.study_yr,
+          sem: studentEnrollment.sem,
+        });
+
+        if (existingRegistration) {
+          if (existingRegistration.provisional === false) {
+            throw new GraphQLError(
+              "You are already registered in the provided study year and semester"
+            );
+          } else {
+            // update the existing registration
+
+            const _registrationData = {
+              student_no,
+              registration_token: registrationToken,
+              enrollment_token,
+              acc_yr_id: studentEnrollment.acc_yr,
+              study_yr: studentEnrollment.study_yr,
+              sem: studentEnrollment.sem,
+              provisional: false,
+              registered_type: "student",
+              registered_by: student_no,
+            };
+
+            const save_id = await saveData({
+              table: "students_registration",
+              data: _registrationData,
+              id: existingRegistration.id,
+            });
+
+            return {
+              success: true,
+              message: "Student Registered Successfully",
+            };
+          }
+        }
+
+        // use the enrollment details to check and see if the allocated invoices are paid
+        //  const studentInvoices =  await getStudentInvoices({
+        //     student_no
+        //   })
+
+        //   const unpaidInvoices = studentInvoices.filter(inv => inv.amount_due > 0)
+
+        //   if (unpaidInvoices.length > 0) {
+        //     throw new GraphQLError("Registration is only allowed if the student fulfills the university's fees Policy")
+        //   }
+
+        const registrationData = {
+          student_no,
+          registration_token: registrationToken,
+          enrollment_token,
+          acc_yr_id: studentEnrollment.acc_yr,
+          study_yr: studentEnrollment.study_yr,
+          sem: studentEnrollment.sem,
+          provisional: false,
+          registered_type: "student",
+          registered_by: student_no,
+        };
+
+        const save_id = await saveData({
+          table: "students_registration",
+          data: registrationData,
+        });
+
+        return {
+          success: true,
+          message: "Student Registered Successfully",
+        };
+      } catch (error) {
         throw new GraphQLError(error.message);
       }
     },
@@ -521,18 +622,18 @@ const studentRegistrationResolvers = {
         message: "Enrollment Saved Successfully",
       };
     },
-    deleteEnrollment: async (parent, args) => {
-      const { enrollment_id } = args;
+    deRegister: async (parent, args) => {
+      const { registration_id } = args;
 
       try {
         await softDelete({
-          table: "students_enrollment",
-          id: enrollment_id,
+          table: "students_registration",
+          id: registration_id,
         });
 
         return {
           success: "true",
-          message: "Enrollment Succesfully Deleted",
+          message: "Student Succesfully De-Registered",
         };
       } catch (error) {
         throw new GraphQLError(error.message);

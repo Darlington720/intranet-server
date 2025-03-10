@@ -52,6 +52,7 @@ const applicationTypeDefs = `#graphql
         admitted_students(applicant_id: String, admissions_id: String, course_id: String, campus_id: String): [Student]
         my_applications(admitted: Boolean): [Application]
         application_details(running_admissions_id: String, form_no: String): Application
+        global_search_applications(search_criteria: String!, search_value: String!, admissions_id: String, admitted: String): [Student]!
     }
 
     type Mutation {

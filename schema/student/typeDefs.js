@@ -20,7 +20,7 @@ const studentTypeDefs = `#graphql
         biodata: Applicant!,
         program_choice_id: String,
         is_std_verified: Int!,
-        is_resident: Int!,
+        is_resident: Boolean!,
         hall_of_residence: String,
         entry_study_yr: String!,
         entry_acc_yr: String!,
@@ -36,12 +36,15 @@ const studentTypeDefs = `#graphql
         admitted_on: String,
         admitted_by_user:  String
         status: Int,
+        study_yr: String,
+        current_sem: String,
         current_info: CurrentStudentInfo
         # enrollment_status: String # this is supposed to be Not Enrolled, or Enrolled,
         enrollment_history: [StudentEnrollment]!
         registration_history: [StudentRegistration]!
         invoices: [Invoice]!
         student_marks(study_yr: String, sem: String): [StudentMark]
+        course_duration: Int
         # registration_status
         # transactions
         # has_completed
@@ -85,7 +88,7 @@ const studentTypeDefs = `#graphql
         entry_acc_yr: String!,
         nationality: String!,
         billing_nationality: String!,
-        is_resident: Int,
+        is_resident: Boolean,
         hall_of_attachment: String,
         hall_of_residence: String,
         study_time: String!,
@@ -127,7 +130,7 @@ const studentTypeDefs = `#graphql
     }
 
     type Query {
-        students(campus: String, intake: String, acc_yr: String, course_version: String, sic: Int): [Student]!
+        students(campus: String, intake: String, acc_yr: String, course_version: String, sic: Boolean, search_creteria: String, search_value: String): [Student]!
         student_autocomplete(query: String!): [Student]!
         loadStudentFile(student_id: String, student_no: String): Student
         my_details: Student
@@ -144,6 +147,19 @@ const studentTypeDefs = `#graphql
         changeStdPwd(password: String!): ResponseMessage
         saveStdCredentials(email: String!, phone_no: String!): ResponseMessage
         studentSemesterEnrollment(payload: studentSemEnrollmentInput!): ResponseMessage
+        saveStudentDetails(payload: studentDetailsInput!): Response
+    }
+
+    input studentDetailsInput {
+        std_id: String!
+        student_no: String!,
+        registration_no: String!,
+        course_id: String!,
+        intake_id: String!,
+        study_time_id: String!,
+        campus_id: String!,
+        is_resident: Boolean,
+        hall_of_residence: String
     }
 
     input studentSemEnrollmentInput {

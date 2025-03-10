@@ -155,7 +155,7 @@ function calculateTotalYearsSpent(entryAccYr, currentAccYr, deadSemesters) {
 /**
  * Determine the appropriate enrollment status based on history and current situation
  */
-function determineEnrollmentStatus(
+export function determineEnrollmentStatus(
   history,
   expectedStudyYear,
   expectedSem,
@@ -168,7 +168,7 @@ function determineEnrollmentStatus(
   // );
 
   // Check if there are recent dead semesters
-  const hasRecentDeadSemesters = deadSemesters.length > 0;
+  // const hasRecentDeadSemesters = deadSemesters.length > 0;
 
   if (
     (parseInt(expectedStudyYear) == 1 && parseInt(expectedSem) == 2) ||
@@ -178,10 +178,10 @@ function determineEnrollmentStatus(
     return ["continuing_student"];
   } else if (parseInt(expectedStudyYear) == courseDuration) {
     return [
+      "graduation",
       "continuing_student",
       "finalist",
       "completed_with_retakes",
-      "graduated",
     ];
   } else {
     return ["continuing_student"];

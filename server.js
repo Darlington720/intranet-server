@@ -51,6 +51,7 @@ let allowedOrigins = [
   "http://localhost:5173",
   "http://localhost:5174",
   "https://intranet-j5rr.vercel.app",
+  "http://10.211.55.2:3000",
 ];
 
 // app.use(
@@ -1917,6 +1918,11 @@ app.use(
         "removeModule",
         "myResults",
         "studentSemesterEnrollment",
+        "selfEnrollment",
+        "selfRegister",
+        "Graduation_sections",
+        "check_graduation_elligibility",
+        "verify_student_credentials",
       ]);
 
       const applicantOperations = new Set([

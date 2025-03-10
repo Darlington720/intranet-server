@@ -119,9 +119,11 @@ export const getCourse = async ({
     SELECT 
       courses.*,
       course_versions.id AS course_version_id,
-      course_versions.version_title
+      course_versions.version_title,
+      levels.level_code
     FROM courses 
     LEFT JOIN course_versions ON courses.id = course_versions.course_id
+    LEFT JOIN levels ON levels.id = courses.level
     WHERE courses.deleted = 0 ${where}`;
 
     const [results, fields] = await db.execute(sql, values);

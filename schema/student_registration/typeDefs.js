@@ -15,6 +15,7 @@ const StudentRegistrationTypeDefs = `#graphql
         de_registered: Int!,
         de_registered_reason: String,
         reg_comments: String,
+        registered_type: String,
         registered_by: String!
         date: String!,
         registered_user: Staff
@@ -69,8 +70,10 @@ const StudentRegistrationTypeDefs = `#graphql
             enrolled_by: String!,
         ):ResponseMessage
 
-        deleteEnrollment(
-            enrollment_id: String!
+        selfRegister(enrollment_token: String!): ResponseMessage
+
+        deRegister(
+            registration_id: String!
         ): ResponseMessage
 
         editEnrollment(

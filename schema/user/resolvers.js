@@ -107,6 +107,7 @@ const loginUser = async ({ email, password, user_id, context }) => {
     id: user.user_id,
     permissions: permissionsObj,
     session_id: session_id,
+    school_id: user.school_id,
   };
 
   const SALT_ROUNDS = 10;
@@ -339,7 +340,7 @@ const userResolvers = {
     },
     addNewUser: async (parent, args, context) => {
       const active_user_id = context.req.user.id;
-      const { user_id, role_id, employee_id } = args.payload;
+      const { user_id, role_id, employee_id, school_id } = args.payload;
       let connection = await db.getConnection();
 
       try {
@@ -363,6 +364,7 @@ const userResolvers = {
           user_id: employee_id,
           email: user_id,
           role_id,
+          school_id,
           pwd: hashedPwd,
           created_on: new Date(),
           created_by: active_user_id,

@@ -7,7 +7,19 @@ import { getAllRunningAdmissions } from "../running_admissions/resolvers.js";
 import saveData from "../../utilities/db/saveData.js";
 import jwt from "jsonwebtoken";
 import saveDataWithOutDuplicates from "../../utilities/db/saveDataWithOutDuplicates.js";
-import { getApplicationForms } from "../application/resolvers.js";
+import {
+  createApplication,
+  getApplicationForms,
+  getLatestCourseVersion,
+} from "../application/resolvers.js";
+import fetchOrCreateRecord from "../../utilities/helpers/fetchOrCreateRecord.js";
+import generateStdno from "../../utilities/generateStdno.js";
+import generateRegNo from "../../utilities/emails/generateRegistrationNo.js";
+import { getCourse } from "../course/resolvers.js";
+import { PubSub } from "graphql-subscriptions";
+
+const pubsub = new PubSub();
+const UPLOAD_PROGRESS = "UPLOAD_APPLICANT_PROGRESS";
 
 export const getApplicant = async (applicant_id) => {
   try {
@@ -41,6 +53,7 @@ export const getApplicantsSummary = async ({
 }) => {
   try {
     let where = "";
+    let extra_join = "";
     // first, i need the running admissions_id
     const running_admissions = await getAllRunningAdmissions({
       acc_yr_id,
@@ -57,7 +70,7 @@ export const getApplicantsSummary = async ({
     const running_admission_id = running_admissions[0].id;
     const choice_no = 1; // considering first choices only
 
-    let values = [running_admission_id, choice_no];
+    let values = [running_admission_id];
 
     if (completed) {
       where += " AND a.is_completed = ?";
@@ -69,9 +82,15 @@ export const getApplicantsSummary = async ({
       values.push(school_id);
     }
 
-    if (admitted) {
+    if (admitted === true) {
+      extra_join +=
+        " LEFT JOIN program_choices pc ON a.form_no = pc.form_no AND a.admitted_choice = pc.choice_no";
       where += " AND a.is_admitted = ?";
       values.push(admitted);
+    } else {
+      extra_join += " LEFT JOIN program_choices pc ON pc.form_no = a.form_no";
+      where += " AND (pc.choice_no = ? OR pc.choice_no IS NULL)";
+      values.push(choice_no);
     }
 
     // let sql = `SELECT
@@ -98,10 +117,10 @@ export const getApplicantsSummary = async ({
     cr.course_code,
     cr.course_title
     FROM applications a
-    LEFT JOIN program_choices pc ON pc.form_no = a.form_no
+    ${extra_join}
     LEFT JOIN courses cr ON pc.course_id = cr.id
-    LEFT JOIN campuses c ON pc.campus_id = c.id
-    WHERE pc.deleted = 0 AND a.admissions_id = ? AND pc.choice_no = ? ${where}
+    LEFT JOIN campuses c ON pc.campus_id = c.id 
+    WHERE pc.deleted = 0 AND a.admissions_id = ? ${where}
     GROUP BY cr.course_code, c.campus_title;
     `;
 
@@ -171,6 +190,8 @@ const applicantResolvers = {
           completed,
           school_id,
         });
+
+        console.log("summary", summary);
 
         return summary;
       } catch (error) {
@@ -590,6 +611,273 @@ const applicantResolvers = {
       } catch (error) {
         throw new GraphQLError(error.message);
       }
+    },
+    uploadApplicants: async (parent, args, context) => {
+      const user_id = context.req.user.id;
+      let connection;
+      connection = await db.getConnection();
+
+      try {
+        const totalRecords = args.payload.applicants.length;
+        // console.log("total records", totalRecords);
+        // console.log("args.payload", args.payload);
+        let uploaded = 0;
+        const { acc_yr_id, scheme_id, intake_id } =
+          args.payload.admission_details;
+
+        // first lets fetch the running admission details
+        const [admissions] = await getAllRunningAdmissions({
+          intake_id,
+          scheme_id,
+          acc_yr_id,
+        });
+
+        if (!admissions) throw new GraphQLError("No runnig aadmissions found!");
+
+        for (const applicant of args.payload.applicants) {
+          const {
+            surname,
+            other_names,
+            gender,
+            entry_study_yr,
+            study_time,
+            campus,
+            nationality,
+            progcode,
+            sponsorship,
+            email,
+            telno,
+            dob,
+            district,
+            oq_award,
+            oq_institution,
+            oq_awarding_body,
+            oq_duration,
+            oq_class,
+            oq_grade,
+            oq_start_date,
+            oq_end_date,
+          } = applicant;
+
+          // console.log("applicant", {
+          //   surname,
+          //   other_names,
+          //   gender,
+          //   entry_study_yr,
+          //   study_time,
+          //   campus,
+          //   nationality,
+          //   progcode,
+          //   sponsorship,
+          //   email,
+          //   telno,
+          //   dob,
+          //   district,
+          //   oq_award,
+          //   oq_institution,
+          //   oq_awarding_body,
+          //   oq_duration,
+          //   oq_class,
+          //   oq_grade,
+          //   oq_start_date,
+          //   oq_end_date,
+          // });
+
+          await connection.beginTransaction();
+
+          // based on the nationality provided, lets fetch the corresponding id
+          const nationality_id = await fetchOrCreateRecord({
+            table: "nationalities",
+            field: "nationality_title",
+            value: nationality,
+            user_id,
+          });
+
+          const study_time_id = await fetchOrCreateRecord({
+            table: "study_times",
+            field: "study_time_title",
+            value: study_time,
+            user_id,
+          });
+
+          const campus_id = await fetchOrCreateRecord({
+            table: "campuses",
+            field: "campus_title",
+            value: campus,
+            user_id,
+          });
+
+          // we need the course details based on the code provided
+          const courses = await getCourse({
+            course_code: progcode,
+          });
+
+          const course = courses[courses.length - 1];
+
+          if (!course) {
+            throw new GraphQLError("Course not found: " + progcode);
+          }
+
+          // lets first cater for the applicants table
+          const applicantData = {
+            surname,
+            other_names,
+            email,
+            phone_no: telno,
+            nationality_id,
+            date_of_birth: dob,
+            gender,
+            is_verified: true,
+            district_of_birth: district,
+            district_of_origin: district,
+            is_complete: true,
+            imported_record: true,
+          };
+
+          const applicant_id = await saveData({
+            table: "applicants",
+            data: applicantData,
+            id: null,
+          });
+
+          // create an application
+          const application_id = await createApplication(
+            applicant_id,
+            admissions.id,
+            true //paid
+          );
+
+          const [_application] = await getApplicationForms({
+            id: application_id,
+          });
+
+          // add the program choices
+          const progChoiceData = {
+            applicant_id,
+            form_no: _application.form_no,
+            admissions_id: admissions.id,
+            choice_no: 1,
+            course_id: course.id,
+            campus_id,
+            study_time_id,
+            entry_yr: entry_study_yr,
+          };
+
+          const prog_choice_id = await saveData({
+            table: "program_choices",
+            data: progChoiceData,
+            id: null,
+          });
+
+          // we need to admit this student
+          const stdno = await generateStdno();
+
+          const regno = generateRegNo({
+            intake: admissions.intake_title,
+            course_code: progcode,
+            level: course.level_code,
+            study_time: study_time,
+            stdno,
+          });
+
+          // console.log("regno", regno);
+
+          const course_version = await getLatestCourseVersion(course.id);
+
+          // // let prepare the students record
+          const studentData = {
+            student_no: stdno,
+            registration_no: regno,
+            applicant_id: applicant_id,
+            application_id,
+            form_no: _application.form_no,
+            study_time_id: study_time_id,
+            entry_study_yr: entry_study_yr,
+            entry_acc_yr: acc_yr_id,
+            course_id: course.id,
+            course_version_id: course_version ? course_version.id : "",
+            intake_id: intake_id,
+            campus_id: campus_id,
+            added_by: user_id,
+            verified_by: user_id,
+            sponsorship,
+            creation_date: new Date(),
+          };
+
+          const save_id = await saveData({
+            table: "students",
+            data: studentData,
+            id: null,
+          });
+
+          const data2 = {
+            std_id: save_id,
+            is_admitted: true,
+            admitted_by: user_id,
+            is_verified: true,
+            admitted_choice: 1,
+            is_completed: 1,
+            status: "completed",
+          };
+
+          await saveData({
+            table: "applications",
+            data: data2,
+            id: application_id,
+          });
+
+          if (oq_institution) {
+            const otherQuals = {
+              applicant_id,
+              form_no: _application.form_no,
+              admissions_id: admissions.id,
+              institute_name: oq_institution,
+              award_obtained: oq_award,
+              award_type: oq_class,
+              award_duration: oq_duration,
+              grade: oq_grade,
+              awarding_body: oq_awarding_body,
+              start_date: oq_start_date,
+              end_date: oq_end_date,
+            };
+
+            const save_id = await saveData({
+              table: "applicant_qualifications",
+              data: otherQuals,
+              id: null,
+            });
+          }
+
+          uploaded++;
+          const percentage = Math.floor((uploaded / totalRecords) * 100);
+
+          // ✅ Optimize pubsub: Only publish every 10% interval
+          if (percentage % 10 === 0 || uploaded === totalRecords) {
+            pubsub.publish(UPLOAD_PROGRESS, {
+              uploadApplicantsProgress: { progress: percentage },
+            });
+          }
+        }
+
+        await connection.commit();
+
+        return {
+          success: true,
+          message: "Applicants uploaded successfully",
+        };
+      } catch (error) {
+        connection.rollback();
+        throw new GraphQLError(error.message);
+      } finally {
+        if (connection) {
+          connection.release();
+        }
+      }
+    },
+  },
+  Subscription: {
+    uploadApplicantsProgress: {
+      subscribe: () => pubsub.asyncIterableIterator([UPLOAD_PROGRESS]),
     },
   },
 };

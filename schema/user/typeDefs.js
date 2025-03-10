@@ -48,6 +48,7 @@ input NewUserInput {
     user_id: String!,
     role_id: String!,
     employee_id: String!
+    school_id: String
 }
 
 `;

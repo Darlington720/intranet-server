@@ -1,17 +1,76 @@
 import { db } from "../../config/config.js";
 import { GraphQLError } from "graphql";
-import generateUniqueID from "../../utilities/generateUniqueID.js";
 import { getCourseUnits } from "../course_unit/resolvers.js";
 import fetchOrCreateRecord from "../../utilities/helpers/fetchOrCreateRecord.js";
 import { getEmployees } from "../employee/resolvers.js";
 import saveData from "../../utilities/db/saveData.js";
 import calculateGrades from "../../utilities/helpers/calculateGrades.js";
 import { getStudents } from "../student/resolvers.js";
-import saveDataWithOutDuplicates from "../../utilities/db/saveDataWithOutDuplicates.js";
 import { getAccYrs } from "../acc_yr/resolvers.js";
 import { getCampus } from "../campus/resolvers.js";
 import { getIntake } from "../intake/resolvers.js";
 import { getStudyTime } from "../study_time/resolvers.js";
+
+export const getMissingMarks = async ({
+  course_id,
+  student_no,
+  course_version_id,
+}) => {
+  let where = "";
+  let values = [];
+
+  console.log("student number", student_no);
+
+  // Fetch all course units for the given course
+  if (course_id) {
+    where += " AND course_units.course_id = ?";
+    values.push(course_id);
+  }
+
+  if (course_version_id) {
+    where += " AND course_units.course_version_id = ?";
+    values.push(course_version_id);
+  }
+
+  let sql = `
+    SELECT * FROM course_units WHERE course_units.deleted = 0 ${where} LIMIT 5
+  `;
+
+  let [courseUnits] = await db.execute(sql, values);
+
+  // Fetch all results for the student in those course units
+  let sql2 = `
+    SELECT * FROM results 
+    WHERE results.deleted = 0 AND student_no = ? LIMIT 5
+  `;
+
+  let [studentMarks] = await db.execute(sql2, [student_no]);
+
+  // console.log("course_units", courseUnits);
+  // console.log("studentMarks", studentMarks);
+
+  // Find missing marks
+  // const missingMarks = courseUnits.filter((unit) =>
+  //   studentMarks.some((mark) => mark.module_id === unit.id)
+  // );
+
+  // const course_units = [
+  //   { id: 101, course_unit_code: "MATH101" },
+  //   { id: 102, course_unit_code: "PHY101" },
+  //   { id: 103, course_unit_code: "CHEM101" },
+  // ];
+
+  // const student_marks = [
+  //   { module_id: 101, student_no: "S123", final_mark: 80 },
+  //   { module_id: 103, student_no: "S123", final_mark: 75 },
+  // ];
+
+  // const missingMarks = course_units.filter(
+  //   (unit) => !student_marks.some((mark) => mark.module_id === unit.id)
+  // );
+
+  return missingMarks;
+};
 
 export const getStdMarks = async ({
   student_no,
@@ -47,7 +106,7 @@ export const getStdMarks = async ({
 
     const sql = `SELECT 
       results.* 
-      FROM results 
+      FROM results f
       ${where} ORDER BY study_yr ASC, semester ASC`;
 
     const [results] = await db.execute(sql, values);

@@ -36,12 +36,15 @@ export const getApplicationForms = async ({
   admitted_stds,
   application_details,
   is_admitted,
+  search_criteria,
+  search_value,
 }) => {
   try {
     let where = "";
     let extra_join = "";
     let extra_select = "";
     let extra_order = "";
+    let extra_join_where = "";
     let values = [];
 
     if (id) {
@@ -83,26 +86,6 @@ export const getApplicationForms = async ({
       values.push(is_completed);
     }
 
-    if (course_id || campus_id) {
-      extra_join +=
-        " LEFT JOIN program_choices ON applications.form_no = program_choices.form_no";
-
-      extra_select +=
-        "program_choices.choice_no, program_choices.course_id, program_choices.campus_id, program_choices.study_time_id, program_choices.entry_yr, ";
-
-      if (course_id) {
-        where +=
-          " AND program_choices.course_id = ? AND program_choices.choice_no = ?";
-        values.push(course_id, 1); // considering the first choice
-      }
-
-      if (campus_id) {
-        where +=
-          " AND program_choices.campus_id = ? AND program_choices.choice_no = ?";
-        values.push(campus_id, 1); // considering the first choice
-      }
-    }
-
     if (admitted_stds) {
       extra_join += ` LEFT JOIN students ON applications.id = students.application_id AND applications.form_no = students.form_no
       LEFT JOIN campuses ON students.campus_id = campuses.id
@@ -120,10 +103,45 @@ export const getApplicationForms = async ({
           CONCAT(salutations.salutation_code, ' ',  employees.surname, ' ', employees.other_names) AS admitted_by_user,
           `;
 
+      extra_join_where +=
+        " AND program_choices.choice_no = applications.admitted_choice";
+
       where += " AND applications.is_admitted = ?";
       values.push(true); // considering those admitted only
 
       extra_order += "students.creation_date";
+    }
+
+    if (search_criteria && search_value) {
+      extra_join +=
+        " LEFT JOIN applicants ON applicants.id = applications.applicant_id";
+
+      if (search_criteria === "name") {
+        where += ` AND CONCAT(applicants.surname, ' ', applicants.other_names) LIKE ?`;
+        values.push(`%${search_value}%`);
+      }
+    }
+
+    if (course_id || campus_id) {
+      extra_join += ` LEFT JOIN program_choices ON applications.form_no = program_choices.form_no ${extra_join_where}`;
+
+      extra_select +=
+        "program_choices.choice_no, program_choices.course_id, program_choices.campus_id, program_choices.study_time_id, program_choices.entry_yr, ";
+
+      if (course_id) {
+        where += " AND program_choices.course_id = ?";
+        values.push(course_id); // considering the first choice
+      }
+
+      if (campus_id) {
+        where += " AND program_choices.campus_id = ?";
+        values.push(campus_id); // considering the first choice
+      }
+
+      if (!admitted_stds) {
+        where += " AND program_choices.choice_no = ?";
+        values.push(1);
+      }
     }
 
     let sql = `SELECT ${extra_select} applications.* FROM applications ${extra_join} WHERE applications.deleted = 0 ${where} ORDER BY ${
@@ -225,7 +243,8 @@ export const getLatestCourseVersion = async (course_id) => {
 export const createApplication = async (
   applicant_id,
   admissions_id,
-  completed_form_sections = null
+  completed_form_sections = null,
+  paid = false
 ) => {
   try {
     const uniqueFormNumber = generateFormNumber();
@@ -238,8 +257,9 @@ export const createApplication = async (
       admissions_id, 
       creation_date, 
       status,
-      completed_section_ids
-      ) VALUES (?, ?, ?, ?, ?, ?)`;
+      completed_section_ids,
+      is_paid
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)`;
 
     let values3 = [
       applicant_id,
@@ -248,6 +268,7 @@ export const createApplication = async (
       today,
       status,
       completed_form_sections,
+      paid,
     ];
 
     const [results3, fields3] = await db.execute(sql3, values3);
@@ -372,8 +393,6 @@ const applicationResolvers = {
     admitted_students: async (parent, args) => {
       const { admissions_id, applicant_id, course_id, campus_id } = args;
 
-      console.log("here we are...");
-
       try {
         const _applications = await getApplicationForms({
           applicant_id,
@@ -390,17 +409,40 @@ const applicationResolvers = {
         throw new GraphQLError(error.message);
       }
     },
+
+    global_search_applications: async (parent, args) => {
+      const { search_criteria, search_value } = args;
+
+      try {
+        // we need to globally search the applications to get the application innstances
+        const applications = await getApplicationForms({
+          search_criteria,
+          search_value,
+          admitted_stds: true,
+        });
+
+        // console.log("applications", applications);
+        return applications;
+      } catch (error) {
+        console.log("error", error);
+      }
+    },
   },
   Application: {
     applicant: async (parent, args) => {
       const applicant_id = parent.applicant_id;
+      // console.log("args", args);
       try {
-        let sql4 = `SELECT applicants.*, salutations.salutation_code AS salutation FROM applicants 
+        let sql4 = `
+        SELECT 
+          applicants.*, 
+          salutations.salutation_code AS salutation 
+        FROM applicants 
         LEFT JOIN salutations ON applicants.salutation_id = salutations.id
         WHERE applicants.id = ? `;
         let values4 = [applicant_id];
 
-        const [results4, fields4] = await db.execute(sql4, values4);
+        const [results4] = await db.execute(sql4, values4);
 
         // console.log("applicant", values4);
 
@@ -593,7 +635,9 @@ const applicationResolvers = {
           const [_application] = await getApplicationForms({
             id: application_id,
           });
+
           if (!_application) throw new GraphQLError("Application not found!");
+
           if (_application.isAdmitted)
             throw new GraphQLError("Student is already admitted");
 
@@ -601,6 +645,7 @@ const applicationResolvers = {
             applicant_id,
             course_id,
           });
+
           const [admissions] = await getAllRunningAdmissions({
             id: _application.admissions_id,
           });
