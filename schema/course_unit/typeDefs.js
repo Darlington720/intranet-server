@@ -25,6 +25,7 @@ const courseUnitTypeDefs = `#graphql
 
     type Query {
         course_units(course_version_id: String!): [CourseUnit]
+        my_course_units: [CourseUnit]
     }
 
     type Mutation {

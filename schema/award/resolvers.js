@@ -10,7 +10,7 @@ const getAllAwards = async () => {
     // console.log("results", results);
     return results;
   } catch (error) {
-    console.log("error", error);
+    // console.log("error", error);
     throw new GraphQLError("Error fetching awards");
   }
 };

@@ -4,11 +4,12 @@ import generateUniqueID from "../../utilities/generateUniqueID.js";
 import DataLoader from "dataloader";
 
 // Create a DataLoader for courses
-const courseLoader = new DataLoader(async (departmentIds) => {
-  // Execute a single query for all department IDs
-  // console.log("department ids", departmentIds);
-  const [courses] = await db.execute(
-    `
+const courseLoader = new DataLoader(
+  async (departmentIds) => {
+    // Execute a single query for all department IDs
+    // console.log("department ids", departmentIds);
+    const [courses] = await db.execute(
+      `
     SELECT 
       courses.id,
       course_code,
@@ -21,18 +22,24 @@ const courseLoader = new DataLoader(async (departmentIds) => {
     AND deleted = 0 
     ORDER BY course_code ASC
   `,
-    departmentIds
-  );
+      departmentIds
+    );
 
-  // Group courses by department_id
-  const coursesByDepartment = departmentIds.map((id) =>
-    courses.filter((course) => course.department_id === id)
-  );
+    // console.log("the courses", courses);
 
-  // console.log("courses", coursesByDepartment);
+    // Group courses by department_id
+    const coursesByDepartment = departmentIds.map((id) =>
+      courses.filter((course) => course.department_id === id)
+    );
 
-  return coursesByDepartment;
-});
+    // console.log("courses", coursesByDepartment);
+
+    return coursesByDepartment;
+  },
+  {
+    cache: false,
+  }
+);
 
 export const getDepartments = async ({ id }) => {
   try {

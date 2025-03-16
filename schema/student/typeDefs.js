@@ -45,6 +45,8 @@ const studentTypeDefs = `#graphql
         invoices: [Invoice]!
         student_marks(study_yr: String, sem: String): [StudentMark]
         course_duration: Int
+        has_cleared: Boolean,
+        graduation_status: String,
         # registration_status
         # transactions
         # has_completed

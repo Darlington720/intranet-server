@@ -6,6 +6,59 @@ import { getCourse } from "../course/resolvers.js";
 import softDelete from "../../utilities/db/softDelete.js";
 import { getAllGrading } from "../grading/resolvers.js";
 
+// export const getCourseUnits = async ({
+//   course_version_id,
+//   course_unit_code,
+//   course_id,
+//   course_unit_title,
+//   study_yr,
+//   sem,
+// }) => {
+//   try {
+//     let where = "";
+//     let values = [];
+
+//     if (course_version_id) {
+//       where += " AND course_version_id = ?";
+//       values.push(course_version_id);
+//     }
+
+//     if (course_unit_code) {
+//       where += " AND course_unit_code = ?";
+//       values.push(course_unit_code);
+//     }
+
+//     if (course_id) {
+//       where += " AND course_id = ?";
+//       values.push(course_id);
+//     }
+
+//     if (course_unit_title) {
+//       where += " AND course_unit_title = ?";
+//       values.push(course_unit_title);
+//     }
+
+//     if (study_yr) {
+//       where += " AND course_unit_year = ?";
+//       values.push(study_yr);
+//     }
+
+//     if (sem) {
+//       where += " AND course_unit_sem = ?";
+//       values.push(sem);
+//     }
+
+//     let sql = `SELECT * FROM course_units WHERE deleted = 0 ${where}`;
+
+//     const [results, fields] = await db.execute(sql, values);
+//     // console.log("results", results);
+//     return results;
+//   } catch (error) {
+//     console.log("error", error);
+//     throw new GraphQLError("Error fetching modules");
+//   }
+// };
+
 export const getCourseUnits = async ({
   course_version_id,
   course_unit_code,
@@ -15,7 +68,7 @@ export const getCourseUnits = async ({
   sem,
 }) => {
   try {
-    let where = "";
+    let where = "WHERE deleted = 0"; // Always filter out deleted records
     let values = [];
 
     if (course_version_id) {
@@ -33,39 +86,37 @@ export const getCourseUnits = async ({
       values.push(course_id);
     }
 
-    if (course_version_id) {
-      where += " AND course_version_id = ?";
-      values.push(course_version_id);
-    }
-
     if (course_unit_title) {
-      where += " AND course_unit_title = ?";
-      values.push(course_unit_title);
+      where += " AND course_unit_title LIKE ?";
+      values.push(`%${course_unit_title}%`); // Supports partial matching
     }
 
     if (study_yr) {
-      where += " AND course_unit_year = ?";
-      values.push(study_yr);
+      where +=
+        " AND (course_unit_year < ? OR (course_unit_year = ? AND course_unit_sem <= ?))";
+      values.push(study_yr, study_yr, sem);
     }
 
-    if (sem) {
-      where += " AND course_unit_sem = ?";
-      values.push(sem);
-    }
+    let sql = `SELECT * FROM course_units ${where} ORDER BY course_unit_year, course_unit_sem`;
 
-    let sql = `SELECT * FROM course_units WHERE deleted = 0 ${where}`;
-
-    const [results, fields] = await db.execute(sql, values);
-    // console.log("results", results);
+    const [results] = await db.execute(sql, values);
     return results;
   } catch (error) {
-    console.log("error", error);
-    throw new GraphQLError("Error fetching modules");
+    console.error("Error fetching course units:", error);
+    throw new GraphQLError("Error fetching course units");
   }
 };
 
 const CourseUnitRessolvers = {
   Query: {
+    my_course_units: async (_, args, context) => {
+      const student_no = context.req.user.student_no;
+
+      try {
+      } catch (error) {
+        throw new GraphQLError(error.message);
+      }
+    },
     course_units: async (_, args) => {
       const result = await getCourseUnits({
         course_version_id: args.course_version_id,

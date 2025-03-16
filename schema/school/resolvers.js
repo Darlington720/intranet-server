@@ -216,13 +216,8 @@ const schoolResolvers = {
         // console.log("results", results);
         return results; // expecting many courses
       } catch (error) {
-        // console.log("error", error);
-        throw new GraphQLError("Error fetching courses", {
-          extensions: {
-            code: "UNAUTHENTICATED",
-            http: { status: 501 },
-          },
-        });
+        console.log("error", error.message);
+        throw new GraphQLError(error.message);
       }
     },
   },

@@ -16,7 +16,7 @@ const courseTypeDefs = `#graphql
         award: String,
         grading_id: String!,
         study_times: String,
-        is_short_course: Int!,
+        is_short_course: Boolean!,
         course_versions: [CourseVersion]!,
         department: Department,
         school: School,
@@ -36,6 +36,7 @@ const courseTypeDefs = `#graphql
         # course_duration: String,
         # duration_measure: String,
         version_title: String!,
+        total_credit_units: Int!,
         added_on: String!,
         added_by: String!,
         modified_on: String,
@@ -95,11 +96,11 @@ const courseTypeDefs = `#graphql
             award: String!,
             grading_id: String!,
             study_times: String!,
-            is_short_course: Int!,
+            is_short_course: Boolean!,
             course_version: String!
             course_version_id: String,
-            added_by: String!,
-            
+            total_credit_units: Int!
+            # added_by: String!,
         ): CourseVersion
 
         saveCourseVersion(id: ID, course_id: String!, version_title: String!, added_by: String!): CourseVersion
@@ -108,6 +109,8 @@ const courseTypeDefs = `#graphql
         removeAdvertisedCourse(advertised_course_id: String!, added_by: String!): ResponseMessage
         saveCourseAlias(alias: aliasInput!, added_by: String!): ResponseMessage
         deleteCourseAlias(alias_id: ID!): ResponseMessage
+        deleteCourse(course_id: ID!): Response
+        deleteCourseVersion(course_version_id: ID!): Response
         # deleteDepartment(dpt_id: String!): [Department]
     }
 

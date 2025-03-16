@@ -52,6 +52,9 @@ let allowedOrigins = [
   "http://localhost:5174",
   "https://intranet-j5rr.vercel.app",
   "http://10.211.55.2:3000",
+  "http://localhost:8002",
+  "http://localhost:8005",
+  "http://192.168.1.189:2323",
 ];
 
 // app.use(

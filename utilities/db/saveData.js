@@ -59,6 +59,8 @@ const saveData = async ({ table, id, data, idColumn = "id" }) => {
     let columns = Object.keys(data);
     let values = Object.values(data);
 
+    // console.log("the data", data);
+
     if (id) {
       // Update
 
@@ -88,7 +90,7 @@ const saveData = async ({ table, id, data, idColumn = "id" }) => {
       return results.insertId;
     }
   } catch (error) {
-    // console.log("eroor save", error.message);
+    console.log("eroor save", error.message);
     throw new GraphQLError(error.message);
   }
 };

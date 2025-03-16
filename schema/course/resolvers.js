@@ -4,6 +4,7 @@ import generateUniqueID from "../../utilities/generateUniqueID.js";
 import saveData from "../../utilities/db/saveData.js";
 import softDelete from "../../utilities/db/softDelete.js";
 import DataLoader from "dataloader";
+import { getStudents } from "../student/resolvers.js";
 
 export const getAllCourses = async ({ school_id }) => {
   try {
@@ -68,22 +69,27 @@ export const getCourseByID = async (course_id) => {
   }
 };
 
-const courseLoader = new DataLoader(async (courseIds) => {
-  // console.log("course ids", courseIds);
-  const placeholders = courseIds.map(() => "?").join(",");
-  const sql = `SELECT 
+const courseLoader = new DataLoader(
+  async (courseIds) => {
+    // console.log("course ids", courseIds);
+    const placeholders = courseIds.map(() => "?").join(",");
+    const sql = `SELECT 
   *
   FROM courses WHERE id IN (${placeholders}) AND deleted = 0`;
-  const [results] = await db.execute(sql, courseIds);
+    const [results] = await db.execute(sql, courseIds);
 
-  // Map results by course_id
-  const courseMap = courseIds.map(
-    (id) => results.find((course) => course.id === id) || null
-  );
+    // Map results by course_id
+    const courseMap = courseIds.map(
+      (id) => results.find((course) => course.id === id) || null
+    );
 
-  // console.log("course Map", courseMap);
-  return courseMap;
-});
+    // console.log("course Map", courseMap);
+    return courseMap;
+  },
+  {
+    cache: false,
+  }
+);
 
 export const getCourse = async ({
   course_id,
@@ -201,22 +207,27 @@ const getCourseVersions = async (course_id) => {
   }
 };
 
-const courseVersionLoader = new DataLoader(async (courseIds) => {
-  // console.log("course ids", courseIds);
-  const placeholders = courseIds.map(() => "?").join(",");
-  const sql = `SELECT 
+const courseVersionLoader = new DataLoader(
+  async (courseIds) => {
+    // console.log("course ids", courseIds);
+    const placeholders = courseIds.map(() => "?").join(",");
+    const sql = `SELECT 
   *
    FROM course_versions WHERE course_id IN (${placeholders}) AND deleted = 0 ORDER BY added_on ASC`;
-  const [results] = await db.execute(sql, courseIds);
+    const [results] = await db.execute(sql, courseIds);
 
-  // Group results by course_id
-  const courseMap = courseIds.map((id) =>
-    results.filter((cv) => cv.course_id === id)
-  );
+    // Group results by course_id
+    const courseMap = courseIds.map((id) =>
+      results.filter((cv) => cv.course_id === id)
+    );
 
-  // console.log("map", courseMap);
-  return courseMap;
-});
+    // console.log("map", courseMap);
+    return courseMap;
+  },
+  {
+    cache: false,
+  }
+);
 
 const courseResolvers = {
   Query: {
@@ -520,7 +531,8 @@ const courseResolvers = {
   },
 
   Mutation: {
-    saveCourse: async (parent, args) => {
+    saveCourse: async (parent, args, context) => {
+      const user_id = context.req.user.id;
       const {
         id,
         course_code,
@@ -540,135 +552,78 @@ const courseResolvers = {
         course_version,
         course_version_id,
         is_short_course,
-        added_by,
+        total_credit_units,
       } = args;
       const uniqueCourseID = generateUniqueID();
       const uniqueVersionID = generateUniqueID();
       // we need the current date
       const today = new Date();
-      if (id && !course_version_id) {
-        throw new GraphQLError(`Internal System Error`, {
-          extensions: {
-            // code: '',
-            http: { status: 500 },
-          },
-        });
-      }
 
-      // check for the id, if present, we update otherwise we create a new record
-      if (id) {
-        // update
-        try {
-          let sql = `UPDATE courses SET
-            course_code = ?,
-            course_title = ?,
-            course_duration = ?,
-            duration_measure = ?,
-            course_head_id = ?,
-            campuses = ?,
-            entry_yrs = ?,
-            college_id = ?,
-            school_id = ?,
-            department_id = ?,
-            level = ?,
-            award = ?,
-            grading_id = ?,
-            study_times = ?,
-            is_short_course = ?
-          WHERE id = ?`;
-
-          let values = [
-            course_code,
-            course_title,
-            course_duration,
-            duration_measure,
-            course_head_id,
-            campuses,
-            entry_yrs,
-            college_id,
-            school_id,
-            department_id,
-            level,
-            award,
-            grading_id,
-            study_times,
-            is_short_course,
-            id,
-          ];
-
-          const [results, fields] = await db.execute(sql, values);
-
-          // console.log("the results", results);
-          if (results.affectedRows == 0) {
-            // no record the provided id
-            throw new GraphQLError(`No course with id ${id}`, {
-              extensions: {
-                // code: '',
-                http: { status: 400 },
-              },
-            });
-          }
-        } catch (error) {
-          // console.log("error", error);
-          throw new GraphQLError(error, {
-            extensions: {
-              // code: '',
-              http: { status: 400 },
-            },
-          });
+      try {
+        if (id && !course_version_id) {
+          throw new GraphQLError(`Internal System Error!!!`);
         }
-      } else {
+
         // create new record
-        try {
-          let sql = `INSERT INTO courses(id, course_code, course_title, course_duration, duration_measure, course_head_id, campuses, entry_yrs, college_id, school_id, department_id, level, award,  grading_id, study_times, is_short_course) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+        let courseData = {
+          course_code,
+          course_title,
+          course_duration,
+          duration_measure,
+          course_head_id,
+          campuses,
+          entry_yrs,
+          college_id,
+          school_id,
+          department_id,
+          level,
+          award,
+          grading_id,
+          study_times,
+          is_short_course,
+        };
 
-          let values = [
-            uniqueCourseID,
-            course_code,
-            course_title,
-            course_duration,
-            duration_measure,
-            course_head_id,
-            campuses,
-            entry_yrs,
-            college_id,
-            school_id,
-            department_id,
-            level,
-            award,
-            grading_id,
-            study_times,
-            is_short_course,
-          ];
-
-          const [results, fields] = await db.execute(sql, values);
-
-          // console.log("results from insert", results);
-
-          // insert the course version as well
-          let sql2 = `INSERT INTO course_versions( id, course_id, version_title, added_on, added_by) VALUES (?, ?, ?, ?, ?)`;
-          let values2 = [
-            uniqueVersionID,
-            uniqueCourseID,
-            course_version,
-            today,
-            added_by,
-          ];
-
-          const [results2, fields2] = await db.execute(sql2, values2);
-        } catch (error) {
-          console.log("error", error);
-          throw new GraphQLError("Failed to insert courses");
+        if (!id) {
+          let newObj = { ...courseData, id: uniqueCourseID };
+          courseData = newObj;
         }
+
+        const save_id = await saveData({
+          table: "courses",
+          data: courseData,
+          id,
+        });
+
+        let courseVersionData = {
+          course_id: save_id,
+          version_title: course_version,
+          total_credit_units,
+          added_on: today,
+          modified_on: today,
+          added_by: user_id,
+          modified_by: user_id,
+        };
+
+        if (!course_version_id) {
+          let newObj = { ...courseVersionData, id: uniqueVersionID };
+          courseData = newObj;
+        }
+
+        const save_id2 = await saveData({
+          table: "course_versions",
+          data: courseVersionData,
+          id: course_version_id,
+        });
+
+        const result = await getCourseVersionDetails({
+          course_version_id: save_id2,
+        });
+
+        return result; // returning the saved course
+      } catch (error) {
+        console.log("error", error);
+        throw new GraphQLError(error.message);
       }
-
-      const result = await getCourseVersionDetails({
-        course_version_id: course_version_id
-          ? course_version_id
-          : uniqueVersionID,
-      });
-
-      return result; // returning the saved course
     },
     saveCourseVersion: async (parent, args) => {
       const { id, course_id, version_title, added_by } = args;
@@ -986,6 +941,74 @@ const courseResolvers = {
         success: "true",
         message: "Program alias Deleted Successfully!",
       };
+    },
+    deleteCourse: async (parent, args) => {
+      const { course_id } = args;
+
+      // lets check to see if the course has any enrollments from students
+      try {
+        const [std] = await getStudents({
+          course_id,
+          limit: 1,
+        });
+
+        if (std) {
+          throw new GraphQLError(
+            "Failed to delete course, Students are already enrolled in this course!"
+          );
+        }
+
+        const courseVersions = await getCourseVersions(course_id);
+
+        for (const version of courseVersions) {
+          await softDelete({
+            table: "course_versions",
+            id: version.id,
+          });
+        }
+
+        // we can delete the course along with all the versions
+        await softDelete({
+          table: "courses",
+          id: course_id,
+        });
+
+        return {
+          success: true,
+          message: "Course Deleted Successfully!",
+        };
+      } catch (error) {
+        throw new GraphQLError(error.message);
+      }
+    },
+    deleteCourseVersion: async (parent, args) => {
+      const { course_version_id } = args;
+
+      // lets check to see if the course has any enrollments from students
+      try {
+        const [std] = await getStudents({
+          course_version_id,
+          limit: 1,
+        });
+
+        if (std) {
+          throw new GraphQLError(
+            "Failed to delete this course version, Students are already enrolled in this version!"
+          );
+        }
+
+        await softDelete({
+          table: "course_versions",
+          id: course_version_id,
+        });
+
+        return {
+          success: true,
+          message: "Course Version Deleted Successfully!",
+        };
+      } catch (error) {
+        throw new GraphQLError(error.message);
+      }
     },
   },
 };

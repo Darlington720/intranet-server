@@ -28,6 +28,7 @@ function calculateGrades(records, entry_acc_yr) {
 
   let cumulativeCreditUnits = 0;
   let cumulativeWeightedScore = 0;
+  let cumulativeCreditUnitsNoF = 0;
 
   // Process each group
   const results = [];
@@ -38,6 +39,13 @@ function calculateGrades(records, entry_acc_yr) {
     );
 
     // console.log("groupRecords", groupRecords);
+
+    // Compute total credit units excluding courses with grade "F"
+    const semesterCreditUnitsNoF = groupRecords.reduce(
+      (sum, rec) =>
+        rec.grade !== "F" ? sum + parseFloat(rec.credit_units) : sum,
+      0
+    );
 
     const semesterWeightedScore = groupRecords.reduce(
       (sum, rec) =>
@@ -55,6 +63,7 @@ function calculateGrades(records, entry_acc_yr) {
 
     // Update cumulative values
     cumulativeCreditUnits += semesterCreditUnits;
+    cumulativeCreditUnitsNoF += semesterCreditUnitsNoF;
     cumulativeWeightedScore += semesterWeightedScore;
 
     // Calculate acc_yr for this group
@@ -75,6 +84,8 @@ function calculateGrades(records, entry_acc_yr) {
         yrsem: groupKey,
         TCU: semesterCreditUnits,
         CTWS: cumulativeWeightedScore,
+        TCU_noF: semesterCreditUnitsNoF,
+        CTCU_noF: cumulativeCreditUnitsNoF,
         CTCU: cumulativeCreditUnits,
         GPA: GPA.toFixed(2),
         CGPA: (cumulativeWeightedScore / cumulativeCreditUnits).toFixed(2),

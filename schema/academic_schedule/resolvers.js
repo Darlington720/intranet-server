@@ -77,8 +77,6 @@ export const getRunningSemesters = async ({
 
       const [results2, fields2] = await db.execute(sql2, values);
 
-      // console.log("results", results2);
-
       return results2;
     }
   } catch (error) {

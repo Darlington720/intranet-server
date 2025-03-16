@@ -93,6 +93,8 @@ export const getStudents = async ({
   fetchStdBio = false,
   search_creteria,
   search_value,
+  course_id,
+  limit,
 }) => {
   try {
     let where = "";
@@ -178,6 +180,11 @@ export const getStudents = async ({
       values.push(course_version_id);
     }
 
+    if (course_id) {
+      where += " AND students.course_id = ?";
+      values.push(course_id);
+    }
+
     if (get_course_details) {
       extra_join += " LEFT JOIN courses ON courses.id = students.course_id";
       extra_select +=
@@ -203,7 +210,7 @@ export const getStudents = async ({
     LEFT JOIN campuses ON students.campus_id = campuses.id
     LEFT JOIN study_times ON study_times.id = students.study_time_id
     ${extra_join}
-    WHERE students.deleted = 0 ${where} LIMIT 1000`;
+    WHERE students.deleted = 0 ${where} LIMIT ${limit ? limit : "1000"}`;
     const [results, fields] = await db.execute(sql, values);
     // console.log("results", results);
     return results;

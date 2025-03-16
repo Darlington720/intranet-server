@@ -36,6 +36,8 @@ export const gettModules = async ({ id, role_id }) => {
       };
     });
 
+    // console.log("updatedModules", updatedModules);
+
     return updatedModules;
   } catch (error) {
     console.log("error", error);
