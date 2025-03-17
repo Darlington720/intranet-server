@@ -90,12 +90,35 @@ const getGraduationStatistics = async () => {
       ) AS cleared_students;
   `;
 
+  // let faculty_breakdown_sql = `
+  //       SELECT
+  //   sch.school_code,
+  //   COUNT(DISTINCT r.student_no) AS total_students,
+  //   SUM(COALESCE(cu.credit_units, 0)) AS total_credit_units,
+  //   cv.total_credit_units AS required_credit_units
+  //   FROM results r
+  //   INNER JOIN students std ON r.student_no = std.student_no
+  //   INNER JOIN course_versions cv ON cv.id = std.course_version_id
+  //   LEFT JOIN course_units cu ON cu.id = r.module_id
+  //   LEFT JOIN courses c ON c.id = std.course_id
+  //   LEFT JOIN schools sch ON sch.id = c.school_id
+  //   LEFT JOIN grading_system_details gd
+  //       ON gd.grading_system_id = cu.grading_id
+  //       AND COALESCE(ROUND(r.final_mark, 0), ROUND(COALESCE(r.coursework, 0) + COALESCE(r.exam, 0), 0))
+  //           BETWEEN gd.min_value AND gd.max_value
+  //       AND gd.deleted = 0
+  //   WHERE r.deleted = 0
+  //   GROUP BY sch.school_code
+  //   HAVING SUM(COALESCE(cu.credit_units, 0)) >= cv.total_credit_units;
+
+  // `;
+
   let faculty_breakdown_sql = `
-        SELECT 
-    sch.school_code,
-    COUNT(DISTINCT r.student_no) AS total_students,
-    SUM(COALESCE(cu.credit_units, 0)) AS total_credit_units,
-    cv.total_credit_units AS required_credit_units
+    SELECT 
+        sch.school_code,
+        COUNT(DISTINCT r.student_no) AS total_students,
+        SUM(COALESCE(cu.credit_units, 0)) AS total_credit_units,
+        cv.total_credit_units AS required_credit_units
     FROM results r
     INNER JOIN students std ON r.student_no = std.student_no
     INNER JOIN course_versions cv ON cv.id = std.course_version_id
@@ -108,10 +131,9 @@ const getGraduationStatistics = async () => {
             BETWEEN gd.min_value AND gd.max_value 
         AND gd.deleted = 0
     WHERE r.deleted = 0
-    GROUP BY sch.school_code
+    GROUP BY sch.school_code, cv.total_credit_units
     HAVING SUM(COALESCE(cu.credit_units, 0)) >= cv.total_credit_units;
-
-  `;
+`;
 
   const [total_eligible_students] = await db.execute(totals_sql);
   const [total_cleared_students] = await db.execute(total_cleared);
@@ -163,26 +185,50 @@ const getStudentClearanceLogs = async ({ student_no, section_id }) => {
 };
 
 const getGraduationStudentsDetails = async () => {
+  //   let sql = `
+  //   SELECT
+  //     std.*,
+  //     r.student_no,
+  //     SUM(cu.credit_units) AS total_credit_units,
+  //     cv.total_credit_units AS required_credit_units
+  // FROM results r
+  // INNER JOIN students std ON r.student_no = std.student_no
+  // INNER JOIN course_versions cv ON cv.id = std.course_version_id
+  // LEFT JOIN course_units cu ON cu.id = r.module_id
+  // LEFT JOIN grading_system_details gd
+  //     ON gd.grading_system_id = cu.grading_id
+  //     AND COALESCE(ROUND(r.final_mark, 0), ROUND(COALESCE(r.coursework, 0) + COALESCE(r.exam, 0), 0))
+  //         BETWEEN gd.min_value AND gd.max_value
+  //     AND gd.deleted = 0
+  // WHERE r.deleted = 0
+  // GROUP BY r.student_no, cv.total_credit_units
+  // HAVING SUM(cu.credit_units) >= cv.total_credit_units
+  // LIMIT 1000;
+  // `;
+
   let sql = `
   SELECT 
-    std.*,
+    std.student_no,
+    std.first_name,
+    std.last_name,
+    std.course_version_id,
     r.student_no,
-    SUM(cu.credit_units) AS total_credit_units,
+    SUM(COALESCE(cu.credit_units, 0)) AS total_credit_units,
     cv.total_credit_units AS required_credit_units
-FROM results r
-INNER JOIN students std ON r.student_no = std.student_no
-INNER JOIN course_versions cv ON cv.id = std.course_version_id
-LEFT JOIN course_units cu ON cu.id = r.module_id
-LEFT JOIN grading_system_details gd 
-    ON gd.grading_system_id = cu.grading_id 
-    AND COALESCE(ROUND(r.final_mark, 0), ROUND(COALESCE(r.coursework, 0) + COALESCE(r.exam, 0), 0)) 
-        BETWEEN gd.min_value AND gd.max_value 
-    AND gd.deleted = 0
-WHERE r.deleted = 0 
-GROUP BY r.student_no, cv.total_credit_units
-HAVING SUM(cu.credit_units) >= cv.total_credit_units
-LIMIT 1000;
-`;
+  FROM results r
+  INNER JOIN students std ON r.student_no = std.student_no
+  INNER JOIN course_versions cv ON cv.id = std.course_version_id
+  LEFT JOIN course_units cu ON cu.id = r.module_id
+  LEFT JOIN grading_system_details gd 
+      ON gd.grading_system_id = cu.grading_id 
+      AND COALESCE(ROUND(r.final_mark, 0), ROUND(COALESCE(r.coursework, 0) + COALESCE(r.exam, 0), 0)) 
+          BETWEEN gd.min_value AND gd.max_value 
+      AND gd.deleted = 0
+  WHERE r.deleted = 0 
+  GROUP BY r.student_no, cv.total_credit_units, std.student_no, std.first_name, std.last_name, std.course_version_id
+  HAVING SUM(COALESCE(cu.credit_units, 0)) >= cv.total_credit_units
+  LIMIT 1000;
+  `;
 
   let [results] = await db.execute(sql);
 
