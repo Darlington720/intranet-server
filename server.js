@@ -56,7 +56,7 @@ let allowedOrigins = [
   "http://localhost:8005",
   "http://192.168.1.189:2323",
   "http://tredumo.com:2323",
-  "https://tredumo.com/graphql",
+  "https://tredumo.com",
 ];
 
 // app.use(
