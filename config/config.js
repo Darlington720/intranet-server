@@ -13,6 +13,7 @@ const PRIVATE_KEY = "tredumo#123";
 const PORTAL_PRIVATE_KEY = "stdPortal@tredumo123#";
 const APPLICANT_PRIVATE_KEY = "applicant@tredumo1234#";
 const baseUrl = `http://${host}:2222/module_logos/`;
+const test = "";
 
 const database = knex({
   client: "mysql",
