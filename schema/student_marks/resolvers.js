@@ -172,9 +172,11 @@ export const getStdResults = async ({
     const pagination =
       start !== undefined && limit !== undefined ? `LIMIT ? OFFSET ?` : "";
 
-    if (pagination) {
-      values.push(limit, start);
-    }
+    // if (pagination) {
+    //   values.push(limit, start);
+    // }
+
+    console.log("values", values);
 
     // Query
     const sql = `
@@ -201,11 +203,12 @@ export const getStdResults = async ({
           AND gd.deleted = 0
       ${where}
       ORDER BY study_yr ASC, semester ASC
-      ${pagination}
+      LIMIT 50 OFFSET 0;
     `;
 
     // Execute query
     const [rows] = await db.execute(sql, values);
+    // console.log("rows", rows)
     return rows;
   } catch (error) {
     console.error("Error fetching student marks:", error, {

@@ -107,22 +107,45 @@ export const getApplicantsSummary = async ({
     //   WHERE program_choices.deleted = 0 AND admissions_id = ? AND choice_no = ?
     //   GROUP BY course_code, campus_title`;
 
+    // let sql = `
+    // SELECT
+    // a.admissions_id,
+    // pc.course_id,
+    // pc.campus_id,
+    // c.campus_title,
+    // COUNT(*) AS student_count,
+    // cr.course_code,
+    // cr.course_title
+    // FROM applications a
+    // ${extra_join}
+    // LEFT JOIN courses cr ON pc.course_id = cr.id
+    // LEFT JOIN campuses c ON pc.campus_id = c.id
+    // WHERE pc.deleted = 0 AND a.admissions_id = ? ${where}
+    // GROUP BY cr.course_code, c.campus_title;
+    // `;
+
     let sql = `
     SELECT 
-    a.admissions_id,
-    pc.course_id,
-    pc.campus_id,
-    c.campus_title,
-    COUNT(*) AS student_count,
-    cr.course_code,
-    cr.course_title
+        a.admissions_id,
+        pc.course_id,
+        pc.campus_id,
+        c.campus_title,
+        COUNT(*) AS student_count,
+        cr.course_code,
+        cr.course_title
     FROM applications a
     ${extra_join}
     LEFT JOIN courses cr ON pc.course_id = cr.id
     LEFT JOIN campuses c ON pc.campus_id = c.id 
     WHERE pc.deleted = 0 AND a.admissions_id = ? ${where}
-    GROUP BY cr.course_code, c.campus_title;
-    `;
+    GROUP BY 
+        a.admissions_id, 
+        pc.course_id, 
+        pc.campus_id, 
+        c.campus_title, 
+        cr.course_code, 
+        cr.course_title;
+`;
 
     const [results] = await db.execute(sql, values);
     // console.log("results", results);
@@ -191,7 +214,7 @@ const applicantResolvers = {
           school_id,
         });
 
-        console.log("summary", summary);
+        // console.log("summary", summary);
 
         return summary;
       } catch (error) {

@@ -142,11 +142,17 @@ export const getApplicationForms = async ({
         where += " AND program_choices.choice_no = ?";
         values.push(1);
       }
+
+      if (!admitted_stds) {
+        extra_order += "applications.creation_date";
+      }
     }
 
     let sql = `SELECT ${extra_select} applications.* FROM applications ${extra_join} WHERE applications.deleted = 0 ${where} ORDER BY ${
       extra_order ? extra_order : "applications.id"
     } DESC`;
+
+    // console.log("sql", sql);
 
     const [results, fields] = await db.execute(sql, values);
     // console.log("results", results);

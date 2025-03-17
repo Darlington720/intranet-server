@@ -8,7 +8,7 @@ import mysql from "mysql2/promise";
 // });
 
 const port = 2323;
-const host = "192.168.1.189";
+const host = "localhost";
 const PRIVATE_KEY = "tredumo#123";
 const PORTAL_PRIVATE_KEY = "stdPortal@tredumo123#";
 const APPLICANT_PRIVATE_KEY = "applicant@tredumo1234#";
@@ -49,12 +49,22 @@ const postgraduateDB = knex({
 const _db = knex({
   client: "mysql",
   connection: {
-    host: "localhost",
-    user: "root",
-    password: "",
+    host: "tredumo.com",
+    user: "api_user",
+    password: "1234",
     database: "intranet",
   },
 });
+
+// const _db = knex({
+//   client: "mysql",
+//   connection: {
+//     host: "localhost",
+//     user: "root",
+//     password: "",
+//     database: "intranet",
+//   },
+// });
 
 // Create the connection to database
 // const db = await mysql.createConnection({
@@ -63,29 +73,28 @@ const _db = knex({
 //   database: "intranet",
 // });
 
-// let db;
-
-// async function connectToDatabase() {
-//   if (!db || db.state === "disconnected") {
-//     db = await mysql.createConnection({
-//       host: "localhost",
-//       user: "root",
-//       database: "intranet",
-//       password: "198563",
-//     });
-//   }
-// }
-
 // await connectToDatabase();
 
 const db = await mysql.createPool({
-  host: "localhost",
-  user: "root",
+  host: "tredumo.com",
+  user: "api_user",
   database: "intranet",
+  password: "1234",
   connectionLimit: 10,
   waitForConnections: true,
   enableKeepAlive: true,
 });
+
+// const db = await mysql.createPool({
+//   host: "localhost",
+//   user: "root",
+//   database: "intranet",
+//   password: "",
+//   connectionLimit: 10,
+//   waitForConnections: true,
+//   enableKeepAlive: true,
+// });
+
 // db = await pool.getConnection();
 
 export {
