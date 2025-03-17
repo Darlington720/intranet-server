@@ -22,7 +22,7 @@ jobs:
 
       - name: Deploy to VPS
         run: |
-          ssh root@your-vps-ip << 'EOF'
+          ssh root@149.255.39.32 << 'EOF'
             cd /var/www/intranet-server
             git stash
             git pull origin main
