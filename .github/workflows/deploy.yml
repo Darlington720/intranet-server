@@ -24,6 +24,7 @@ jobs:
         run: |
           ssh root@your-vps-ip << 'EOF'
             cd /var/www/intranet-server
+            git stash
             git pull origin main
             npm install
             pm2 restart all  # Restart Node.js app
