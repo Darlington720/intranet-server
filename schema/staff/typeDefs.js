@@ -12,7 +12,7 @@ const staffTypeDefs = `#graphql
 
 
     type Query {
-        staff_members: [Staff]
+        staff_members: [Employee]
         staff_autocomplete(staff_name: String!): [Staff]
     }
 

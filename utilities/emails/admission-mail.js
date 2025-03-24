@@ -1,7 +1,7 @@
 import { GraphQLError } from "graphql";
 import nodemailer from "nodemailer";
 
-async function sendEmail({ to, subject, message }) {
+async function sendEmail({ to, subject, message, html }) {
   try {
     // create reusable transporter object using the default SMTP transport
     let transporter = nodemailer.createTransport({
@@ -22,6 +22,7 @@ async function sendEmail({ to, subject, message }) {
       to: to, // list of receivers
       subject: subject, // Subject line
       text: message, // plain text body
+      html: html,
     });
 
     console.log("Message sent: %s", info.messageId);

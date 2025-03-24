@@ -20,6 +20,7 @@ const graduationSectionTypeDefs = `#graphql
         acc_yr_id: String!,
         acc_yr_title: String!,
         cleared_by: String,
+        cleared_by_user: String,
         created_on: String!,
         rejection_logs: [RejectionLog]
         student_details: Student
@@ -70,6 +71,7 @@ const graduationSectionTypeDefs = `#graphql
     type Mutation {
         verify_student_credentials(payload: CredentialsPayload): Response
         clearStudentForGraduation(payload: ClearancePayload): Response
+        resendClearanceForm: Response
     }
     
     input ClearancePayload {

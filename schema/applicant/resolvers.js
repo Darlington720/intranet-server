@@ -196,6 +196,27 @@ export const checkApplicantData = async (applicant_id, applicantData) => {
   }
 };
 
+export const getOTP = async ({ user_id, otp_code, _module }) => {
+  try {
+    let where = "";
+    let values = [user_id, otp_code];
+
+    if (_module) {
+      where += " AND module = ?";
+      values.push(_module);
+    }
+
+    let sql = `SELECT * FROM otps WHERE user_id = ? AND otp_code = ? ${where} ORDER BY id DESC LIMIT 1`;
+
+    const [results] = await db.execute(sql, values);
+
+    return results;
+  } catch (error) {
+    // console.log("error", error);
+    throw new GraphQLError(error.message);
+  }
+};
+
 const applicantResolvers = {
   Query: {
     applicant: async () => {

@@ -231,6 +231,8 @@ const runningAdmissionsResolvers = {
         east_african_admission_fees,
         international_admission_fees,
       } = args;
+
+      // console.log("args", args);
       // we need the current date
       const today = new Date();
 
@@ -316,11 +318,14 @@ const runningAdmissionsResolvers = {
             acc_yr_id,
           });
 
+          console.log("existing running admissions", existingRunningAdmission);
+
           if (existingRunningAdmission[0]) {
             throw new GraphQLError(
               "Admission already exists, Please make changes in the existing one"
             );
           }
+
           let sql = `INSERT INTO running_admissions(
           intake_id,
           scheme_id,
@@ -359,16 +364,18 @@ const runningAdmissionsResolvers = {
             east_african_application_fees,
             international_application_fees,
             activate_admission_fees,
-            national_admission_fees,
-            east_african_admission_fees,
-            international_admission_fees,
+            national_admission_fees || null,
+            east_african_admission_fees || null,
+            international_admission_fees || null,
             user_id,
             today,
           ];
 
-          const [results, fields] = await db.execute(sql, values);
+          // console.log("values", values);
+
+          const [results] = await db.execute(sql, values);
         } catch (error) {
-          console.log("error", error);
+          // console.log("error", error);
           throw new GraphQLError(error.message);
         }
       }

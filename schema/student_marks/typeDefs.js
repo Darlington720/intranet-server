@@ -1,7 +1,7 @@
 const StudentMarksTypeDefs = `#graphql
 
     type StudentMark {
-        biodata: Student,
+        student_info: Student,
         result_id: ID!,
         student_no: String!,
         module_id: Int,
@@ -19,6 +19,11 @@ const StudentMarksTypeDefs = `#graphql
         approval_log_id: Int,
         visibility: Boolean, # Visibility to students
         uploaded_by: String!,
+        uploaded_by_user: String!,
+        cw_uploaded_by: String!,
+        date_time: String,
+        cw_uploaded_at: String,
+        cw_uploaded_by_user: String,
         migration_type: String # 'active', 'completed'
         comments: String,
         retake_count: Int,
@@ -74,11 +79,37 @@ const StudentMarksTypeDefs = `#graphql
         std_marks(student_nos: [String]!): [Student]
         get_result_config: ResultsConfig!
         results(payload: ResultsInput!): StudentsResults
+        load_results_history(payload: ResultsHistoryInput!): [StudentMark]
     }
 
     type Mutation {
         bulkActiveStudentsResultsUpload(payload: [BulkActiveResultsInput]!): ResponseMessage
         saveResultsConfig(payload: ResultsConfigInput!): ResponseMessage
+        uploadCourseWorkMarks(security_code: Int!, payload: [MrksInput]!): Response
+        uploadFinalExamMarks(security_code: Int!, payload: [MrksInput]!): Response
+        sendResultsUploadVerificationCode: Response
+    }
+
+    input ResultsHistoryInput {
+        acc_yr_id: String!,
+        course_id: String!,
+        study_yr: String!,
+        sem: String!,
+        course_unit_id: String,
+        entry_acc_yr: String,
+        student_no: String,
+        upload_type: String,
+        uploaded_by_id: String,
+        version_id: String,
+        start: Int!,
+        limit: Int!
+    }
+
+    input MrksInput {
+        student_no: String!,
+        registration_no: String!,
+        course_unit_code: String!,
+        marks: Int!
     }
 
     input ResultsInput {

@@ -13,18 +13,21 @@ import { getStudentEnrollment } from "../student_enrollment/resolvers.js";
 import calculateGrades from "../../utilities/helpers/calculateGrades.js";
 import { getCourseVersionDetails } from "../course/resolvers.js";
 import saveDataWithOutDuplicates from "../../utilities/db/saveDataWithOutDuplicates.js";
-import sendEmail from "../../utilities/emails/email-otp.js";
+
 import { getRunningSemesters } from "../academic_schedule/resolvers.js";
+import sendEmail from "../../utilities/emails/admission-mail.js";
 
 const getGraduationSections = async ({
   section_key,
   is_resident,
   level_id,
   limit,
+  getRejectedSection,
 }) => {
   try {
     let conditions = ["deleted = 0"];
     let values = [];
+    let extra_joins = [];
 
     if (section_key) {
       conditions.push("section_key = ?");
@@ -41,12 +44,21 @@ const getGraduationSections = async ({
       values.push(level_id);
     }
 
+    // if (getRejectedSection) {
+    //   extra_joins.push(
+    //     "LEFT JOIN students_clearance_logs ON students_clearance_logs.section_id = graduation_sections.id"
+    //   );
+    //   conditions.push("students_clearance_logs.status = ?");
+    //   values.push("rejected");
+    // }
+
     if (limit) {
     }
 
-    let sql = `SELECT * FROM graduation_sections WHERE ${conditions.join(
-      " AND "
-    )} ORDER BY graduation_sections.sort ASC ${limit ? `LIMIT ${limit}` : ""}`;
+    let sql = `SELECT * FROM graduation_sections 
+    WHERE ${conditions.join(" AND ")} ORDER BY graduation_sections.sort ASC ${
+      limit ? `LIMIT ${limit}` : ""
+    }`;
 
     const [results] = await db.execute(sql, values);
     return results;
@@ -153,7 +165,7 @@ const getGraduationStatistics = async () => {
   };
 };
 
-const getStudentClearanceLogs = async ({ student_no, section_id }) => {
+const getStudentClearanceLogs = async ({ student_no, section_id, status }) => {
   let where = "";
   let values = [];
 
@@ -167,14 +179,24 @@ const getStudentClearanceLogs = async ({ student_no, section_id }) => {
     values.push(section_id);
   }
 
+  if (status) {
+    where += " AND students_clearance_logs.status = ?";
+    values.push(status);
+  }
+
   let sql = `
     SELECT 
     students_clearance_logs.*,
-    graduation_sections.title AS graduation_section_title
+    graduation_sections.title AS graduation_section_title,
+    CONCAT(salutations.salutation_code, ' ', employees.surname, ' ', employees.other_names) AS cleared_by_user
     FROM 
         students_clearance_logs
     LEFT JOIN 
         graduation_sections ON graduation_sections.id = students_clearance_logs.section_id
+    LEFT JOIN 
+        employees ON employees.id = students_clearance_logs.cleared_by
+    LEFT JOIN 
+        salutations ON salutations.id = employees.salutation_id
     WHERE 
         students_clearance_logs.deleted = 0 ${where}
     `;
@@ -304,7 +326,7 @@ const getStudentNextClearanceStage = async ({
     }
 
     const currentStageDetails = graduationStages.find(
-      (stage) => stage.section_id == current_section_id
+      (stage) => stage.id == current_section_id
     );
 
     // filter out all stages above the current
@@ -716,9 +738,11 @@ const graduationSectionRessolvers = {
         }
 
         // get the running ac_yr
-        const running_sem = await getRunningSemesters({
+        const [running_sem] = await getRunningSemesters({
           intake_id: student_details.intake_id,
         });
+
+        // console.log("running_sem", running_sem);
 
         if (!running_sem) {
           throw new GraphQLError("Failed to get Runningg Semester");
@@ -784,12 +808,19 @@ const graduationSectionRessolvers = {
 
           const nextStageData = {
             student_no,
-            section_id: nextStage.section_id,
+            section_id: nextStage.id,
             acc_yr_id: running_sem.acc_yr_id,
             status: "pending",
             created_on: new Date(),
           };
 
+          console.log("next stage", {
+            student_no,
+            section_id: nextStage.id,
+            acc_yr_id: running_sem.acc_yr_id,
+            status: "pending",
+            created_on: new Date(),
+          });
           await saveData({
             table: "students_clearance_logs",
             data: nextStageData,
@@ -857,6 +888,60 @@ const graduationSectionRessolvers = {
         return {
           success: true,
           message: "Student Cleared Successfully",
+        };
+      } catch (error) {
+        throw new GraphQLError(error.message);
+      }
+    },
+    resendClearanceForm: async (parent, args, context) => {
+      const student_no = context.req.user.student_no;
+      try {
+        // all we need to change the status of the student's form based on the last form state
+        // use the student number to get the applicant id
+        const [student] = await getStudents({
+          std_no: student_no,
+          fetchStdBio: true,
+          get_course_details: true,
+        });
+
+        if (!student) {
+          throw new GraphQLError("Failed to get Student!");
+        }
+
+        // get the rejected section
+        const [rejectedSection] = await getStudentClearanceLogs({
+          student_no: student_no,
+          status: "rejected",
+        });
+
+        if (!rejectedSection) {
+          throw new GraphQLError("You don't have any rejected Section!");
+        }
+        // we need to stop the general form transportation
+        const formRejectionData = {
+          graduation_status: "in_progress",
+        };
+
+        await saveData({
+          table: "students",
+          data: formRejectionData,
+          id: student_no,
+          idColumn: "student_no",
+        });
+
+        const stdClearanceData = {
+          status: "pending",
+        };
+
+        const save_id = await saveData({
+          table: "students_clearance_logs",
+          data: stdClearanceData,
+          id: rejectedSection.id,
+        });
+
+        return {
+          success: true,
+          message: `Form resent successfully!`,
         };
       } catch (error) {
         throw new GraphQLError(error.message);

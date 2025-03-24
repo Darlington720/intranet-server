@@ -195,7 +195,7 @@ export const getStudents = async ({
       extra_join +=
         " LEFT JOIN applicants ON applicants.id = students.applicant_id LEFT JOIN nationality_categories ON applicants.nationality_id = nationality_categories.id";
       extra_select +=
-        " ,nationality_categories.id as nationality_category_id, applicants.surname, applicants.other_names";
+        " ,nationality_categories.id as nationality_category_id, applicants.surname, applicants.other_names, applicants.email";
     }
 
     let sql = `SELECT 

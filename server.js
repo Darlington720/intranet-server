@@ -1928,6 +1928,7 @@ app.use(
         "Graduation_sections",
         "check_graduation_elligibility",
         "verify_student_credentials",
+        "resendClearanceForm",
       ]);
 
       const applicantOperations = new Set([
