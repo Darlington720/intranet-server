@@ -18,8 +18,8 @@ const StudentMarksTypeDefs = `#graphql
         status: String!,  # Status: Pending/Approved/Rejected
         approval_log_id: Int,
         visibility: Boolean, # Visibility to students
-        uploaded_by: String!,
-        uploaded_by_user: String!,
+        uploaded_by_id: String,
+        uploaded_by_user: String,
         cw_uploaded_by: String!,
         date_time: String,
         cw_uploaded_at: String,
@@ -73,13 +73,18 @@ const StudentMarksTypeDefs = `#graphql
         students_marks(study_yr: String, sem: String): [Student]
     }
 
+    type ResultsHistory {
+        total_records: Int,
+        student_marks: [StudentMark]
+    }
+
     type Query {
         student_marks(student_no: String!, page: Int!, start: Int!, limit: Int!): [StudentMark]
         get_student_marks(student_no: String!): Student
         std_marks(student_nos: [String]!): [Student]
         get_result_config: ResultsConfig!
         results(payload: ResultsInput!): StudentsResults
-        load_results_history(payload: ResultsHistoryInput!): [StudentMark]
+        load_results_history(payload: ResultsHistoryInput!): ResultsHistory
     }
 
     type Mutation {
@@ -87,7 +92,20 @@ const StudentMarksTypeDefs = `#graphql
         saveResultsConfig(payload: ResultsConfigInput!): ResponseMessage
         uploadCourseWorkMarks(security_code: Int!, payload: [MrksInput]!): Response
         uploadFinalExamMarks(security_code: Int!, payload: [MrksInput]!): Response
+        uploadMigratedResults(security_code: Int!, migration_type: String!, payload: [MigratedResultsInput]!): Response
         sendResultsUploadVerificationCode: Response
+        deleteStudentMarks(result_ids: [Int]!): ResponseMessage
+    }
+
+    input MigratedResultsInput {
+        student_no: String!
+        course_unit_code: String!
+        acc_yr: String!,
+        course_work: Int,
+        exam: Int,
+        final_mark: Int,
+        retake_count: Int,
+        remark: String
     }
 
     input ResultsHistoryInput {
@@ -102,7 +120,8 @@ const StudentMarksTypeDefs = `#graphql
         uploaded_by_id: String,
         version_id: String,
         start: Int!,
-        limit: Int!
+        limit: Int!,
+        submission: Boolean
     }
 
     input MrksInput {

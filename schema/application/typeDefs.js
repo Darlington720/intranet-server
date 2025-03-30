@@ -44,15 +44,24 @@ const applicationTypeDefs = `#graphql
     progress: Int!
   }
 
+   type Applications {
+        total_records: Int,
+        applications: [Application]
+    }
+
+    type AdmittedStudents {
+        total_records: Int,
+        students: [Student]
+    }
 
     type Query {
-        applications(applicant_id: String, admissions_id: String, course_id: String, campus_id: String, is_completed: Boolean): [Application]
+        applications(applicant_id: String, admissions_id: String, course_id: String, campus_id: String, is_completed: Boolean, start: Int!, limit: Int!,): Applications
         application(admissions_id: String, applicant_id: String!, form_no: String): Application
         admitted_students_summary(acc_yr_id: String!, scheme_id: String!, intake_id: String!, school_id: String!): [ApplicantSammary]!
-        admitted_students(applicant_id: String, admissions_id: String, course_id: String, campus_id: String): [Student]
+        admitted_students(applicant_id: String, admissions_id: String, course_id: String, campus_id: String,  start: Int!, limit: Int!): AdmittedStudents
         my_applications(admitted: Boolean): [Application]
         application_details(running_admissions_id: String, form_no: String): Application
-        global_search_applications(search_criteria: String!, search_value: String!, admissions_id: String, admitted: String): [Student]!
+        global_search_applications(search_criteria: String!, search_value: String!, admissions_id: String, admitted: String,start: Int!, limit: Int!): AdmittedStudents
     }
 
     type Mutation {

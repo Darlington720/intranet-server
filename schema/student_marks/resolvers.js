@@ -13,6 +13,7 @@ import { getStudyTime } from "../study_time/resolvers.js";
 import { getRunningSemesters } from "../academic_schedule/resolvers.js";
 import sendEmail from "../../utilities/emails/admission-mail.js";
 import { getApplicant, getOTP } from "../applicant/resolvers.js";
+import softDelete from "../../utilities/db/softDelete.js";
 
 export const getMissingMarks = async ({
   course_id,
@@ -121,6 +122,7 @@ export const getStdMarks = async ({
 };
 
 export const getStdResults = async ({
+  id,
   acc_yr_id,
   student_no,
   module_id,
@@ -133,6 +135,7 @@ export const getStdResults = async ({
   entry_acc_yr,
   sem,
   course_id,
+  submission,
   start = 0,
   limit = 50,
 }) => {
@@ -144,18 +147,36 @@ export const getStdResults = async ({
     const values = [];
 
     // Add filters
+    if (id) {
+      where += " AND r.id = ?";
+      values.push(id);
+    }
+
     if (acc_yr_id) {
       where += " AND r.acc_yr_id = ?";
       values.push(acc_yr_id);
     }
 
+    if (submission) {
+      where += " AND r.migration_type IS NULL";
+    } else {
+      where += " AND r.migration_type IS NOT NULL";
+    }
+
     if (course_id) {
       where += " AND cu.course_id = ?";
       order_by += " , r.date_time DESC";
-      extra_join +=
-        " LEFT JOIN employees emp ON emp.id = r.uploaded_by_id LEFT JOIN salutations sal ON sal.id = emp.salutation_id LEFT JOIN employees emp2 ON emp2.id = r.cw_uploaded_by";
-      extra_select +=
-        "  ,CONCAT(sal.salutation_code, ' ', emp.surname, ' ', emp.other_names) AS uploaded_by_user ,CONCAT(sal.salutation_code, ' ', emp2.surname, ' ', emp2.other_names) AS cw_uploaded_by_user";
+
+      extra_join += ` 
+          LEFT JOIN employees emp ON emp.id = r.uploaded_by_id 
+          LEFT JOIN salutations sal1 ON sal1.id = emp.salutation_id 
+          LEFT JOIN employees emp2 ON emp2.id = r.cw_uploaded_by
+          LEFT JOIN salutations sal2 ON sal2.id = emp2.salutation_id`;
+
+      extra_select += `
+          , CONCAT(sal1.salutation_code, ' ', emp.surname, ' ', emp.other_names) AS uploaded_by_user 
+          , CONCAT(sal2.salutation_code, ' ', emp2.surname, ' ', emp2.other_names) AS cw_uploaded_by_user`;
+
       values.push(course_id);
     }
 
@@ -219,6 +240,7 @@ export const getStdResults = async ({
     // Query
     const sql = `
       SELECT 
+        SQL_CALC_FOUND_ROWS
         r.*,
         cu.course_unit_code,
         cu.course_unit_title,
@@ -252,7 +274,16 @@ export const getStdResults = async ({
     // Execute query
     const [rows] = await db.execute(sql, values);
     // console.log("rows", rows)
-    return rows;
+
+    // Fetch the total record count
+    const [[{ total_records }]] = await db.execute(
+      "SELECT FOUND_ROWS() AS total_records;"
+    );
+
+    return {
+      total_records,
+      student_marks: rows,
+    };
   } catch (error) {
     console.error("Error fetching student marks:", error, {
       student_no,
@@ -285,6 +316,7 @@ const getResultsConfig = async ({ setting_name }) => {
 };
 
 const uploadMarks = async (uploadType, user_id, args) => {
+  // upload type -> migration, course_work, exam
   try {
     // first verify the code
     const [codeResponse] = await getOTP({
@@ -315,119 +347,218 @@ const uploadMarks = async (uploadType, user_id, args) => {
       throw new GraphQLError("User Not Found!");
     }
 
-    for (const mrk of args.payload) {
-      const { student_no, course_unit_code, marks } = mrk;
+    if (uploadType == "migration") {
+      if (args.migration_type == "active") {
+        // for active students
+        for (const mrk of args.payload) {
+          const {
+            student_no,
+            course_unit_code,
+            acc_yr,
+            course_work,
+            exam,
+            final_mark,
+            retake_count,
+            remark,
+          } = mrk;
 
-      const [studentDetails] = await getStudents({
-        std_no: student_no,
-      });
+          const [studentDetails] = await getStudents({
+            std_no: student_no,
+          });
 
-      if (!studentDetails) {
-        errors.push({
-          student_no: student_no,
-          message: "Student not found",
-        });
-        continue;
+          if (!studentDetails) {
+            errors.push({
+              student_no: student_no,
+              message: "Student not found",
+            });
+            continue;
+          }
+
+          const acc_yr_id = await fetchOrCreateRecord({
+            table: "acc_yrs",
+            field: "acc_yr_title",
+            value: acc_yr,
+            user_id,
+          });
+
+          const [module_details] = await getCourseUnits({
+            course_unit_code: course_unit_code,
+            course_id: studentDetails.course_id,
+            course_version_id: studentDetails.course_version_id,
+          });
+
+          if (!module_details) {
+            errors.push({
+              student_no: student_no,
+              message: `Course unit not found: ${course_unit_code}`,
+            });
+            continue;
+          }
+
+          // lets check for an existing coursework record
+          const [std_mk] = await getStdResults({
+            student_no: student_no,
+            module_id: module_details.id,
+          });
+
+          let data;
+
+          if (std_mk?.coursework) {
+            errors.push({
+              student_no: student_no,
+              message: `Student already has course work marks for this module: ${module_details.course_unit_code}`,
+            });
+            continue;
+          }
+
+          if (std_mk?.exam) {
+            errors.push({
+              student_no: student_no,
+              message: `Student already has exam marks for this module: ${module_details.course_unit_code}`,
+            });
+            continue;
+          }
+
+          data = {
+            student_no,
+            acc_yr_id: acc_yr_id,
+            module_id: module_details.id,
+            study_yr: module_details.course_unit_year,
+            semester: module_details.course_unit_sem,
+            coursework: course_work,
+            exam: exam,
+            final_mark: final_mark,
+            is_migrated: true,
+            uploaded_by_id: user_id,
+            date_time: new Date(),
+            migration_type: "active",
+            retake_count,
+            remarks: remark,
+          };
+
+          const save_id = await saveData({
+            table: "results",
+            data,
+            idColumn: "result_id",
+            id: std_mk?.result_id,
+          });
+        }
       }
+    } else {
+      for (const mrk of args.payload) {
+        const { student_no, course_unit_code, marks } = mrk;
 
-      const [running_sem] = await getRunningSemesters({
-        intake_id: studentDetails.intake_id,
-      });
-
-      if (!running_sem) {
-        errors.push({
-          student_no: student_no,
-          message: "Running semester not found",
+        const [studentDetails] = await getStudents({
+          std_no: student_no,
         });
-        continue;
-      }
 
-      const [module_details] = await getCourseUnits({
-        course_unit_code: course_unit_code,
-        course_id: studentDetails.course_id,
-        course_version_id: studentDetails.course_version_id,
-      });
-
-      if (!module_details) {
-        errors.push({
-          student_no: student_no,
-          message: `Course unit not found: ${course_unit_code}`,
-        });
-        continue;
-      }
-
-      // lets check for an existing coursework record
-      const [std_mk] = await getStdResults({
-        student_no: student_no,
-        module_id: module_details.id,
-      });
-
-      let data;
-
-      if (uploadType == "coursework") {
-        if (std_mk?.coursework) {
+        if (!studentDetails) {
           errors.push({
             student_no: student_no,
-            message: `Student already has course work marks for this module: ${module_details.course_unit_code}`,
+            message: "Student not found",
           });
           continue;
         }
 
-        data = {
-          student_no,
-          acc_yr_id: running_sem.acc_yr_id,
+        const [running_sem] = await getRunningSemesters({
+          intake_id: studentDetails.intake_id,
+        });
+
+        if (!running_sem) {
+          errors.push({
+            student_no: student_no,
+            message: "Running semester not found",
+          });
+          continue;
+        }
+
+        const [module_details] = await getCourseUnits({
+          course_unit_code: course_unit_code,
+          course_id: studentDetails.course_id,
+          course_version_id: studentDetails.course_version_id,
+        });
+
+        if (!module_details) {
+          errors.push({
+            student_no: student_no,
+            message: `Course unit not found: ${course_unit_code}`,
+          });
+          continue;
+        }
+
+        // lets check for an existing coursework record
+        const [std_mk] = await getStdResults({
+          student_no: student_no,
           module_id: module_details.id,
-          study_yr: module_details.course_unit_year,
-          semester: module_details.course_unit_sem,
-          coursework: marks,
-          cw_uploaded_by: user_id,
-          uploaded_by_id: user_id,
-          cw_uploaded_at: new Date(),
-        };
-      } else if (uploadType == "exam") {
-        if (!std_mk?.coursework) {
-          errors.push({
-            student_no: student_no,
-            message: `Student doesn't have course work marks for this module: ${module_details.course_unit_code}`,
-          });
-          continue;
+        });
+
+        let data;
+
+        if (uploadType == "coursework") {
+          if (std_mk?.coursework) {
+            errors.push({
+              student_no: student_no,
+              message: `Student already has course work marks for this module: ${module_details.course_unit_code}`,
+            });
+            continue;
+          }
+
+          data = {
+            student_no,
+            acc_yr_id: running_sem.acc_yr_id,
+            module_id: module_details.id,
+            study_yr: module_details.course_unit_year,
+            semester: module_details.course_unit_sem,
+            coursework: marks,
+            cw_uploaded_by: user_id,
+            // uploaded_by_id: user_id,
+            cw_uploaded_at: new Date(),
+          };
+        } else if (uploadType == "exam") {
+          if (!std_mk?.coursework) {
+            errors.push({
+              student_no: student_no,
+              message: `Student doesn't have course work marks for this module: ${module_details.course_unit_code}`,
+            });
+            continue;
+          }
+
+          if (std_mk?.exam) {
+            errors.push({
+              student_no: student_no,
+              message: `Student already has exam marks for this module: ${module_details.course_unit_code}`,
+            });
+            continue;
+          }
+
+          data = {
+            student_no,
+            acc_yr_id: running_sem.acc_yr_id,
+            module_id: module_details.id,
+            study_yr: module_details.course_unit_year,
+            semester: module_details.course_unit_sem,
+            exam: marks,
+            uploaded_by_id: user_id,
+            date_time: new Date(),
+          };
         }
 
-        if (std_mk?.exam) {
-          errors.push({
-            student_no: student_no,
-            message: `Student already has exam marks for this module: ${module_details.course_unit_code}`,
-          });
-          continue;
-        }
-
-        data = {
-          student_no,
-          acc_yr_id: running_sem.acc_yr_id,
-          module_id: module_details.id,
-          study_yr: module_details.course_unit_year,
-          semester: module_details.course_unit_sem,
-          exam: marks,
-          uploaded_by_id: user_id,
-          date_time: new Date(),
-        };
+        const save_id = await saveData({
+          table: "results",
+          data,
+          idColumn: "result_id",
+          id: std_mk?.result_id,
+        });
       }
-
-      const save_id = await saveData({
-        table: "results",
-        data,
-        idColumn: "result_id",
-        id: std_mk?.result_id,
-      });
     }
 
     if (errors.length > 0) {
       // there are errors
       // Notify the user about upload errors
-      let emailBody = `<p>Dear User,</p><p>The following students had issues:</p><ul>`;
+      let emailBody = `<p>Dear ${userDetails.salutation} ${userDetails.surname} ${userDetails.other_names},</p><p>The following results had issues:</p><ul>`;
 
       errors.forEach((err) => {
-        emailBody += `<li>Student No: <strong>${err.student_no}</strong> - ${err.message}</li>`;
+        emailBody += `<li><strong>${err.message}</strong></li>`;
       });
 
       emailBody += `</ul><p>Regards,</p><p>Results Management Team</p>`;
@@ -435,10 +566,7 @@ const uploadMarks = async (uploadType, user_id, args) => {
       // send emails
       await sendEmail({
         to: userDetails.email,
-        subject:
-          uploadType == "coursework"
-            ? "Coursework Upload Errors"
-            : "Final Exam Results Upload Errors",
+        subject: "Delete Results Upload Errors",
         html: emailBody,
       });
 
@@ -450,7 +578,9 @@ const uploadMarks = async (uploadType, user_id, args) => {
           message:
             uploadType == "coursework"
               ? "Failed to upload course work marks for students, The details have been sent to your email."
-              : "Failed to upload Final Exam marks for students, The details have been sent to your email.",
+              : uploadType == "coursework"
+              ? "Failed to upload Final Exam marks for students, The details have been sent to your email."
+              : "Failed to upload Student Results, The details have been sent to your email.",
         };
       } else {
         return {
@@ -458,7 +588,9 @@ const uploadMarks = async (uploadType, user_id, args) => {
           message:
             uploadType == "coursework"
               ? "Some students in the uploaded list have issues, The details about these students have been sent to your email."
-              : "Some students in the uploaded list have issues, The details about these students have been sent to your email.",
+              : uploadType == "exam"
+              ? "Some students in the uploaded list have issues, The details about these students have been sent to your email."
+              : "Failed to upload some Student Results, The details have been sent to your email.",
         };
       }
     } else {
@@ -468,11 +600,15 @@ const uploadMarks = async (uploadType, user_id, args) => {
         subject:
           uploadType == "coursework"
             ? "Coursework Marks Uploaded Successfully"
-            : "Final Exam Marks Uploaded Successfully",
+            : uploadType == "exam"
+            ? "Final Exam Marks Uploaded Successfully"
+            : "Results Uploaded Successfully",
         message:
           uploadType == "coursework"
             ? "Course Work Marks uploaded successfully!"
-            : "Final Exam Marks uploaded successfully!",
+            : uploadType == "exam"
+            ? "Final Exam Marks Uploaded Successfully"
+            : "Results Uploaded Successfully",
       });
       // there are no error
       return {
@@ -480,7 +616,9 @@ const uploadMarks = async (uploadType, user_id, args) => {
         message:
           uploadType == "coursework"
             ? "Students Course Work Marks Uploaded Successfully"
-            : "Students Final Exam Marks Uploaded Successfully",
+            : uploadType == "exam"
+            ? "Students Final Exam Marks Uploaded Successfully"
+            : "Students Marks Uploaded Successfully",
       };
     }
   } catch (error) {
@@ -498,8 +636,8 @@ const studentMarksRessolvers = {
         start: args.start,
       });
 
-      // console.log("results", result);
-      const resultsWithGrades = calculateGrades(result);
+      // console.log("results", result.total_records);
+      const resultsWithGrades = calculateGrades(result.student_marks);
       // console.log("result", resultsWithGrades);
       return resultsWithGrades;
     },
@@ -640,6 +778,7 @@ const studentMarksRessolvers = {
           upload_type,
           uploaded_by_id,
           version_id,
+          submission,
           start,
           limit,
         } = args.payload;
@@ -655,6 +794,7 @@ const studentMarksRessolvers = {
           version_id,
           student_no,
           entry_acc_yr,
+          submission,
           sem,
           start,
           limit,
@@ -918,6 +1058,16 @@ const studentMarksRessolvers = {
         throw new GraphQLError(error.message);
       }
     },
+    uploadMigratedResults: async (parent, args, context) => {
+      try {
+        const user_id = context.req.user.id;
+
+        const result = await uploadMarks("migration", user_id, args);
+        return result;
+      } catch (error) {
+        throw new GraphQLError(error.message);
+      }
+    },
     sendResultsUploadVerificationCode: async (parent, args, context) => {
       const user_id = context.req.user.id;
       try {
@@ -956,6 +1106,96 @@ const studentMarksRessolvers = {
           success: true,
           message: "Results security code sent successfully",
         };
+      } catch (error) {
+        console.log("error", error);
+        throw new GraphQLError(error.message);
+      }
+    },
+    deleteStudentMarks: async (parent, args, context) => {
+      try {
+        const user_id = context.req.user.id;
+        const { result_ids } = args;
+
+        // get user details
+        const [userDetails] = await getEmployees({
+          id: user_id,
+          active: true,
+        });
+
+        if (!userDetails) {
+          throw new GraphQLError("User Not Found!");
+        }
+
+        let errors = [];
+        for (const id of result_ids) {
+          // lets first get the marks details
+          const [results_details] = await getStdResults({
+            id,
+          });
+
+          if (!results_details) {
+            errors.push({
+              message: `Result with id ${id} Not Found`,
+            });
+            continue;
+          }
+
+          // lets check of the person trying to delete is the creator
+
+          if (
+            results_details.uploaded_by_id !== user_id ||
+            results_details.cw_uploaded_by !== user_id
+          ) {
+            // not supposed to delete the results
+            errors.push({
+              message: `Failed to delete result with id: ${id}. Only the user who uploaded the results can delete them`,
+            });
+            continue;
+          }
+
+          // then can delete
+
+          await softDelete({
+            table: "results",
+            id,
+            idColumn: "result_id",
+          });
+        }
+
+        if (errors.length > 0) {
+          // there are errors
+
+          let emailBody = `<p>Dear ${userDetails.salutation} ${userDetails.surname} ${userDetails.other_names},</p><p>The following students had issues:</p><ul>`;
+
+          errors.forEach((err) => {
+            emailBody += `<li>Student No: <strong>${err.student_no}</strong> - ${err.message}</li>`;
+          });
+
+          emailBody += `</ul><p>Regards,</p><p>Results Management Team</p>`;
+
+          // send emails
+          await sendEmail({
+            to: userDetails.email,
+            subject:
+              uploadType == "coursework"
+                ? "Coursework Upload Errors"
+                : uploadType == "exam"
+                ? "Final Exam Results Upload Errors"
+                : "Results Upload Errors",
+            html: emailBody,
+          });
+          return {
+            success: false,
+            message:
+              "Failed to delete some results. The details have been sent to your email.",
+          };
+        } else {
+          // no error
+          return {
+            success: true,
+            message: "Results deleted successsfully",
+          };
+        }
       } catch (error) {
         throw new GraphQLError(error.message);
       }

@@ -38,6 +38,8 @@ export const getApplicationForms = async ({
   is_admitted,
   search_criteria,
   search_value,
+  start = 0,
+  limit = 1,
 }) => {
   try {
     let where = "";
@@ -148,15 +150,29 @@ export const getApplicationForms = async ({
       }
     }
 
-    let sql = `SELECT ${extra_select} applications.* FROM applications ${extra_join} WHERE applications.deleted = 0 ${where} ORDER BY ${
+    let sql = `SELECT 
+    SQL_CALC_FOUND_ROWS
+    ${extra_select} applications.* FROM applications ${extra_join} WHERE applications.deleted = 0 ${where} ORDER BY ${
       extra_order ? extra_order : "applications.id"
-    } DESC`;
+    } DESC  LIMIT ? OFFSET ?`;
+
+    // Add limit and start to the values array
+    values.push(limit, start);
 
     // console.log("sql", sql);
 
     const [results, fields] = await db.execute(sql, values);
     // console.log("results", results);
-    return results;
+
+    // Fetch the total record count
+    const [[{ total_records }]] = await db.execute(
+      "SELECT FOUND_ROWS() AS total_records;"
+    );
+
+    return {
+      total_records,
+      results,
+    };
   } catch (error) {
     // console.log("error", error);
     throw new GraphQLError("Error fetching Program Choices " + error.message, {
@@ -304,7 +320,14 @@ export const updateApplicationCompletedSections = async (
 const applicationResolvers = {
   Query: {
     applications: async (parent, args) => {
-      const { admissions_id, applicant_id, course_id, campus_id } = args;
+      const {
+        admissions_id,
+        applicant_id,
+        course_id,
+        campus_id,
+        start,
+        limit,
+      } = args;
 
       try {
         const _applications = await getApplicationForms({
@@ -312,11 +335,16 @@ const applicationResolvers = {
           admissions_id,
           course_id,
           campus_id,
+          start,
+          limit,
         });
 
         // console.log("_applications", _applications);
 
-        return _applications;
+        return {
+          total_records: _applications.total_records,
+          applications: _applications.results,
+        };
       } catch (error) {
         throw new GraphQLError(error.message);
       }
@@ -330,7 +358,7 @@ const applicationResolvers = {
           is_admitted: admitted,
         });
 
-        return _applications;
+        return _applications.results;
       } catch (error) {
         throw new GraphQLError(error.message);
       }
@@ -347,8 +375,11 @@ const applicationResolvers = {
           application_details: true,
         });
 
-        return application[0];
+        // console.log("application", application);
+
+        return application.results[0];
       } catch (error) {
+        console.log("error", error);
         throw new GraphQLError(error.message);
       }
     },
@@ -365,7 +396,7 @@ const applicationResolvers = {
           application_details: true,
         });
 
-        return application[0];
+        return application.results[0];
       } catch (error) {
         throw new GraphQLError(error.message);
       }
@@ -397,7 +428,14 @@ const applicationResolvers = {
     },
 
     admitted_students: async (parent, args) => {
-      const { admissions_id, applicant_id, course_id, campus_id } = args;
+      const {
+        admissions_id,
+        applicant_id,
+        course_id,
+        campus_id,
+        start,
+        limit,
+      } = args;
 
       try {
         const _applications = await getApplicationForms({
@@ -406,18 +444,23 @@ const applicationResolvers = {
           course_id,
           campus_id,
           admitted_stds: true,
+          start,
+          limit,
         });
 
         // console.log("admitted", _applications);
 
-        return _applications;
+        return {
+          total_records: _applications.total_records,
+          students: _applications.results,
+        };
       } catch (error) {
         throw new GraphQLError(error.message);
       }
     },
 
     global_search_applications: async (parent, args) => {
-      const { search_criteria, search_value } = args;
+      const { search_criteria, search_value, start, limit } = args;
 
       try {
         // we need to globally search the applications to get the application innstances
@@ -425,10 +468,15 @@ const applicationResolvers = {
           search_criteria,
           search_value,
           admitted_stds: true,
+          start,
+          limit,
         });
 
         // console.log("applications", applications);
-        return applications;
+        return {
+          total_records: applications.total_records,
+          students: applications.results,
+        };
       } catch (error) {
         console.log("error", error);
       }
@@ -638,9 +686,11 @@ const applicationResolvers = {
             entry_yr,
           } = record;
 
-          const [_application] = await getApplicationForms({
+          const _applications = await getApplicationForms({
             id: application_id,
           });
+
+          const _application = _applications.results[0];
 
           if (!_application) throw new GraphQLError("Application not found!");
 
@@ -722,9 +772,12 @@ const applicationResolvers = {
         connection.release();
 
         for (const record of applicants) {
-          const [_application] = await getApplicationForms({
+          const _results = await getApplicationForms({
             id: record.application_id,
           });
+
+          const _application = _results.results[0];
+
           const _applicant = await getApplicant(_application.applicant_id);
           const [_program_choices] = await getProgramChoices({
             course_id: record.course_id,
@@ -944,12 +997,14 @@ const applicationResolvers = {
       try {
         // check if all sections are complete
 
-        const _application = await getApplicationForms({
+        const _app = await getApplicationForms({
           running_admissions_id: admissions_id,
           applicant_id,
           form_no: form_no,
           application_details: true,
         });
+
+        const _application = _app.results;
 
         if (!_application || _application.length === 0) {
           throw new GraphQLError("Application form not found.");
@@ -974,7 +1029,7 @@ const applicationResolvers = {
         return {
           success: true,
           message: "YOUR APPLICATION FORM HAS BEEN SUBMITTED SUCCESSFULLY",
-          result: application[0],
+          result: application.results[0],
         };
       } catch (error) {
         throw new GraphQLError(error.message);

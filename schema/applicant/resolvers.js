@@ -650,7 +650,7 @@ const applicantResolvers = {
         return {
           success: true,
           message: "Applicant Bio Data Saved Successfully",
-          result: application[0],
+          result: application.results[0],
         };
       } catch (error) {
         throw new GraphQLError(error.message);
@@ -791,9 +791,11 @@ const applicantResolvers = {
             true //paid
           );
 
-          const [_application] = await getApplicationForms({
+          const _app = await getApplicationForms({
             id: application_id,
           });
+
+          const _application = _app.results[0];
 
           // add the program choices
           const progChoiceData = {

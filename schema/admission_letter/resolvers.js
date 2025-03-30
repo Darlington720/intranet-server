@@ -93,10 +93,12 @@ const applicationResolvers = {
         }
 
         // get the application details
-        const [form] = await getApplicationForms({
+        const forms = await getApplicationForms({
           form_no,
           applicant_id,
         });
+
+        const [form] = forms.results;
 
         if (!form) {
           throw new GraphQLError("Form Not found!");
@@ -249,10 +251,12 @@ const applicationResolvers = {
           }
 
           // get the application details
-          const [form] = await getApplicationForms({
+          const forms = await getApplicationForms({
             form_no,
             applicant_id,
           });
+
+          const [form] = forms.results;
 
           if (!form) {
             throw new GraphQLError("Form Not found!");

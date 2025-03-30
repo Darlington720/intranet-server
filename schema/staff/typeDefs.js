@@ -16,10 +16,6 @@ const staffTypeDefs = `#graphql
         staff_autocomplete(staff_name: String!): [Staff]
     }
 
-    # type Mutation {
-        
-    # }
-
 `;
 
 export default staffTypeDefs;

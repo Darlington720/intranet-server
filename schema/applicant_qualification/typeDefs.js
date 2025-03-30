@@ -5,14 +5,14 @@ const applicantQualificationTypeDefs = `#graphql
         applicant_id: String!,
         form_no: String!,
         admissions_id: String!, # running_admissions_id
-        institute_name: String!,
-        award_obtained: String!,
-        award_type: String!,
-        award_duration: String!,
-        grade: String!,
-        awarding_body: String!,
-        start_date: String!,
-        end_date: String!,
+        institute_name: String,
+        award_obtained: String,
+        award_type: String,
+        award_duration: String,
+        grade: String,
+        awarding_body: String,
+        start_date: String,
+        end_date: String,
     }
 
     type Query {
